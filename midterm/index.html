@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>夜市快送・優惠券詐領案｜大數據資料庫應用實務 期中闖關</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cellipse cx='16' cy='17' rx='10' ry='12' fill='%23ff7a3d'/%3E%3Crect x='12' y='3' width='8' height='4' rx='1' fill='%23ff4f79'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=06a45fc7">
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
+  <script src="common.js?v=781ac3e8"></script>
+  <script src="case_data.js?v=9d683c6e"></script>
+  <script src="app.js?v=2d4e222d" defer></script>
+</head>
+<body>
+  <div class="lanterns" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+
+  <div id="loading" class="loading">載入調查資料中…</div>
+
+  <!-- 開場 -->
+  <main id="intro" class="wrap" hidden>
+    <div class="intro">
+      <div class="brand-kicker">大數據資料庫應用實務・期中闖關</div>
+      <h1 class="neon-title" id="introTitle"></h1>
+      <p class="lead" id="introLead"></p>
+      <div id="introBody"></div>
+
+      <div class="card" id="resumeCard" hidden>
+        <h3>繼續調查</h3>
+        <p id="resumeText"></p>
+        <button class="btn primary" id="resumeBtn">繼續</button>
+        <button class="btn ghost" id="switchBtn">換一位同學／重新開始</button>
+      </div>
+
+      <div class="card" id="startCard">
+        <h3>建立你的調查檔案</h3>
+        <div class="form-row">
+          <div class="field"><label for="sid">學號</label><input id="sid" autocomplete="off" placeholder="例如 C112345678"></div>
+          <div class="field"><label for="sname">姓名</label><input id="sname" autocomplete="off" placeholder="你的姓名"></div>
+          <button class="btn primary" id="startBtn">開始調查</button>
+        </div>
+        <p class="feedback err" id="startErr"></p>
+        <p class="muted" id="versionPreview"></p>
+      </div>
+
+      <div class="card">
+        <h3>規則</h3>
+        <div class="rules" id="rules"></div>
+      </div>
+    </div>
+    <footer class="small">大數據資料庫應用實務・Peter｜SQL 在你的瀏覽器裡執行（sql.js），不會上傳任何資料。</footer>
+  </main>
+
+  <!-- 遊戲 -->
+  <div id="game" hidden>
+    <header class="topbar">
+      <span class="logo">夜市快送・稽核檔案</span>
+      <span class="dossier" id="dossier"></span>
+      <span class="who" id="who"></span>
+      <span class="spacer"></span>
+      <span class="progress"><span id="progText"></span><span class="bar"><i id="progBar"></i></span></span>
+      <button class="btn amber small" id="reportBtn">下載進度報告</button>
+      <button class="btn ghost small" id="restartBtn">重新開始</button>
+    </header>
+
+    <div class="wrap">
+      <div class="layout">
+        <section>
+          <nav class="level-nav" id="levelNav" aria-label="關卡"></nav>
+          <article class="card case-file" id="caseFile"></article>
+          <div id="notebook"></div>
+        </section>
+
+        <section class="card editor-card">
+          <div class="code-head" style="margin-top:0"><b>query.sql</b><span>反白部分 SQL 可以只執行那一段</span></div>
+          <textarea id="sql" class="sql" spellcheck="false" aria-label="SQL 編輯器"></textarea>
+          <div class="editor-actions">
+            <button class="btn primary" id="runBtn">▶ 執行</button>
+            <span class="muted">Ctrl / ⌘ + Enter</span>
+            <span class="spacer" style="flex:1"></span>
+            <button class="btn small" id="clearBtn">清空</button>
+            <button class="btn small" id="resetDbBtn" title="還原成原始案件資料">重置資料庫</button>
+          </div>
+          <div class="tabs" role="tablist">
+            <button class="active" data-tab="result">查詢結果</button>
+            <button data-tab="schema">資料表</button>
+            <button data-tab="cards">語法手冊</button>
+          </div>
+          <div class="tab-body" id="tab-result"><p class="muted">執行 SQL 後，結果會顯示在這裡。</p></div>
+          <div class="tab-body" id="tab-schema" hidden></div>
+          <div class="tab-body" id="tab-cards" hidden></div>
+        </section>
+      </div>
+      <footer class="small">大數據資料庫應用實務・Peter｜進度自動存在這台電腦的瀏覽器，換電腦或清除瀏覽資料會遺失，記得隨時下載進度報告。</footer>
+    </div>
+  </div>
+
+  <!-- 修改學號姓名 -->
+  <div class="modal" id="profileModal" hidden>
+    <div class="card">
+      <h3>修改學號／姓名</h3>
+      <div class="final-grid">
+        <div class="field"><label for="editSid">學號</label><input id="editSid" autocomplete="off"></div>
+        <div class="field"><label for="editName">姓名</label><input id="editName" autocomplete="off"></div>
+      </div>
+      <p class="feedback err" id="editErr"></p>
+      <p class="muted" id="editNote"></p>
+      <button class="btn primary" id="editSave">儲存</button>
+      <button class="btn ghost" id="editCancel">取消</button>
+    </div>
+  </div>
+</body>
+</html>
