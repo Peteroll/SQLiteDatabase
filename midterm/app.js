@@ -10,11 +10,22 @@
   const nowIso = () => new Date().toISOString();
   const fmt = iso => { if (!iso) return '—'; const d = new Date(iso); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
   const levelOf = k => G.LEVELS.find(l => l.key === k);
+  const ICON = {
+    arrow: '<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+    check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    send: '<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>'
+  };
+  const RELATIONS = [
+    ['orders.member_id', 'members.member_id'],
+    ['orders.vendor_id', 'vendors.vendor_id'],
+    ['orders.coupon_code', 'coupons.coupon_code'],
+    ['deliveries.order_id', 'orders.order_id'],
+    ['vendor_logins.vendor_id', 'vendors.vendor_id']
+  ];
 
   let S = null;
   let SQLlib = null, db = null;
   let view = 'L1';
-  let tab = 'result';
 
   /* ---------- state ---------- */
   function blankLevel() { return { passed: false, passedAt: null, attempts: 0, answer: null, hints: [false, false], queries: [], passSql: null }; }
@@ -27,6 +38,8 @@
   const unlocked = k => k === 'L1' || (k === 'F' ? S.levels.L8.passed : S.levels[LKEYS[LKEYS.indexOf(k) - 1]].passed);
   const passedCount = () => LKEYS.filter(k => S.levels[k].passed).length;
   const fill = t => String(t).replace(/\{(L\d)\}/g, (_, k) => S.levels[k] && S.levels[k].answer ? S.levels[k].answer : '＿＿');
+  const nextOf = k => ALL[ALL.indexOf(k) + 1] || null;
+  const levelName = k => k === 'F' ? '結案' : `第 ${k.slice(1)} 關`;
 
   function validateId(id, name) {
     const sid = N.toHalf(id).replace(/\s+/g, '');
@@ -34,6 +47,37 @@
     if (N.versionOf(sid) < 0) return '學號最後一碼必須是數字（用來決定你的卷宗版本）';
     if (!N.toHalf(name)) return '請輸入姓名';
     return '';
+  }
+
+  /* ---------- small UI helpers ---------- */
+  let toastTimer = null;
+  function toast(msg) {
+    const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+  }
+  function persistDraft() { S.draft = $('#sql').value; save(); }
+  // 在游標處插入文字（自動補空白）
+  function insertAtCursor(text) {
+    const ta = $('#sql');
+    const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+    const before = v.slice(0, s), after = v.slice(e);
+    const pre = before && !/[\s(,.]$/.test(before) ? ' ' : '';
+    const post = after && !/^[\s),;.]/.test(after) ? ' ' : '';
+    ta.value = before + pre + text + post + after;
+    const pos = (before + pre + text).length;
+    ta.focus(); ta.setSelectionRange(pos, pos);
+    persistDraft();
+  }
+  // 把範例接在編輯器最後並選取，按執行就只跑這一段
+  function appendAndSelect(text) {
+    const ta = $('#sql');
+    const base = ta.value.replace(/\s+$/, '');
+    const start = base ? base.length + 2 : 0;
+    ta.value = (base ? base + '\n\n' : '') + text;
+    ta.focus(); ta.setSelectionRange(start, ta.value.length);
+    ta.scrollTop = ta.scrollHeight;
+    persistDraft();
+    toast('已加到編輯器並選取，按 Ctrl+Enter 只執行這一段');
   }
 
   /* ---------- database ---------- */
@@ -51,12 +95,12 @@
     $('#introBody').innerHTML = G.PROLOGUE.body.map(p => `<p>${esc(p)}</p>`).join('');
     $('#rules').innerHTML = [
       ['截止', C.meta.deadline],
-      ['配分（期中 100 分）', '8 關 × 8 分 = 64<br>指認攤商 16<br>推理簡答 20（老師評）'],
-      ['卷宗版本', '依學號最後一碼分成 5 個版本：0/5、1/6、2/7、3/8、4/9。同組的人答案相同，查法大家都一樣，歡迎討論「怎麼查」。'],
+      ['配分（期中 100 分）', '8 關 × 8 分＝64；指認攤商 16；推理簡答 20（老師評）'],
+      ['卷宗版本', '依學號最後一碼分成 5 個版本：0/5、1/6、2/7、3/8、4/9。同組答案相同，歡迎討論「怎麼查」。'],
       ['語法範圍', '期中前學過的 SQL 就能破案。用到還沒教的語法不會被擋，但會記錄在報告裡。'],
       ['提示', '每關兩層提示，打開不扣分；過關後會看到參考解法與解說。'],
-      ['繳交', '完成後按「下載進度報告」，把 .html 檔上傳到教學平台。沒全破也可以交，依進度給分。']
-    ].map(([t, d]) => `<div class="rule"><b>${t}</b>${d}</div>`).join('');
+      ['繳交', '按「下載進度報告」，把 .html 檔上傳教學平台。沒全破也可以交，依進度給分。']
+    ].map(([t, d], i) => `<div class="rule"><b><i>0${i + 1}</i>${t}</b><span>${d}</span></div>`).join('');
     const saved = load();
     if (saved) {
       $('#resumeCard').hidden = false;
@@ -64,7 +108,7 @@
     }
     const preview = () => { const v = N.versionOf($('#sid').value); $('#versionPreview').textContent = v >= 0 ? `你會拿到：第 ${v + 1} 號卷宗` : ''; };
     $('#sid').addEventListener('input', preview);
-    $('#startBtn').onclick = () => {
+    const start = () => {
       const err = validateId($('#sid').value, $('#sname').value);
       $('#startErr').textContent = err;
       if (err) return;
@@ -72,6 +116,8 @@
       S = blankState(N.toHalf($('#sid').value).replace(/\s+/g, ''), N.toHalf($('#sname').value));
       save(); enterGame();
     };
+    $('#startBtn').onclick = start;
+    $('#sname').addEventListener('keydown', e => { if (e.key === 'Enter') start(); });
     $('#resumeBtn').onclick = () => { S = load(); enterGame(); };
     $('#switchBtn').onclick = () => { $('#resumeCard').hidden = true; $('#sid').focus(); };
     $('#loading').hidden = true;
@@ -86,57 +132,79 @@
     $('#loading').hidden = true; $('#game').hidden = false;
     view = ALL.find(k => unlocked(k) && !S.levels[k].passed) || 'F';
     $('#sql').value = S.draft || `-- 在這裡寫 SQL，按 Ctrl+Enter 執行\nSELECT * FROM complaints LIMIT 5;`;
-    renderHeader(); renderNav(); renderLevel(); renderSchema(); renderCards();
+    renderAll();
+  }
+  function renderAll() { renderHeader(); renderLevel(); renderSchema(); renderCards(); }
+  function goTo(k) {
+    if (!unlocked(k)) return;
+    view = k;
+    renderAll();
+    $('#colCase').scrollTo({ top: 0, behavior: 'smooth' });
+    if (window.innerWidth <= 860) window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function renderHeader() {
     $('#dossier').textContent = `第 ${S.version + 1} 號卷宗`;
-    $('#who').innerHTML = `調查員 <button id="whoBtn" title="修改學號／姓名">${esc(S.name)}（${esc(S.studentId)}）</button>`;
-    $('#whoBtn').onclick = openProfile;
-    const n = passedCount() + (S.levels.F.passed ? 1 : 0);
-    $('#progText').textContent = `${passedCount()} / 8 關${S.levels.F.passed ? '・已結案' : ''}`;
-    $('#progBar').style.width = (n / 9 * 100) + '%';
-  }
-
-  function renderNav() {
-    $('#levelNav').innerHTML = ALL.map(k => {
-      const cls = [k === 'F' ? 'final' : '', S.levels[k].passed ? 'passed' : '', k === view ? 'current' : '', unlocked(k) ? '' : 'locked'].join(' ');
+    $('#whoBtn').textContent = `${S.name} · ${S.studentId}`;
+    $('#levelNav').innerHTML = ALL.map((k, i) => {
+      const st = S.levels[k];
+      const cls = ['step', k === 'F' ? 'final' : '', st.passed ? 'passed' : '', k === view ? 'current' : '', unlocked(k) ? 'open' : 'locked'].join(' ');
       const label = k === 'F' ? '結案' : k.slice(1);
-      return `<button class="${cls}" data-k="${k}" ${unlocked(k) ? '' : 'aria-disabled="true"'} title="${k === 'F' ? '結案' : '第 ' + k.slice(1) + ' 關'}">${label}</button>`;
+      const line = i ? `<span class="step-line ${S.levels[ALL[i - 1]].passed ? 'done' : ''}"></span>` : '';
+      return `${line}<button class="${cls}" data-k="${k}" ${unlocked(k) ? '' : 'aria-disabled="true"'} title="${levelName(k)}${st.passed ? '（已破解）' : unlocked(k) ? '' : '（尚未解鎖）'}">${label}</button>`;
     }).join('');
-    $('#levelNav').querySelectorAll('button').forEach(b => {
-      b.onclick = () => { const k = b.dataset.k; if (!unlocked(k)) return; view = k; renderNav(); renderLevel(); renderCards(); };
-    });
+    $('#levelNav').querySelectorAll('button').forEach(b => { b.onclick = () => goTo(b.dataset.k); });
+    const nx = nextOf(view);
+    $('#nextSlot').innerHTML = view !== 'F' && S.levels[view].passed && nx
+      ? `<button class="cta" id="nextTop">${levelName(nx)}<span class="cta-icon">${ICON.arrow}</span></button>` : '';
+    if ($('#nextTop')) $('#nextTop').onclick = () => goTo(nx);
   }
 
   /* ---------- level view ---------- */
   function renderLevel() {
     if (view === 'F') return renderFinale();
     const L = levelOf(view), st = S.levels[view];
-    const cardChips = L.cards.map(id => `<span class="chip hot">${esc(G.CARDS.find(c => c.id === id).title)}</span>`).join('');
-    $('#caseFile').innerHTML = `
-      <span class="stamp ${st.passed ? 'done' : ''}">${st.passed ? '已破解' : '機密'}</span>
-      <div class="case-no">CASE ${S.version + 1}-${L.no} ／ 第 ${L.no} 關</div>
-      <h2>${esc(L.title)}</h2>
-      <p class="story">${esc(fill(L.story))}</p>
-      <div class="task"><b>任務</b><br>${esc(fill(L.task))}</div>
-      <div class="chips">${cardChips}</div>
-      <div class="field" style="margin-top:14px"><label for="ans">${esc(L.prompt)}</label>
-        <div class="answer-row"><input id="ans" placeholder="${esc(L.placeholder)}" value="${esc(st.passed ? st.answer : '')}" ${st.passed ? 'disabled' : ''}>
-        <button class="btn primary" id="ansBtn" ${st.passed ? 'disabled' : ''}>送出線索</button></div>
-      </div>
-      <div class="feedback" id="fb">${st.passed ? '<span class="ok">✔ 已過關</span>' : (st.attempts ? `<span class="muted">已嘗試 ${st.attempts} 次</span>` : '')}</div>
-      <div class="hints">
-        <div class="hint-buttons">
-          <button class="btn small" id="h1">${st.hints[0] ? '提示一（已開啟）' : '💡 提示一：方向'}</button>
-          <button class="btn small" id="h2" ${st.hints[0] ? '' : 'disabled'}>${st.hints[1] ? '提示二（已開啟）' : '🧩 提示二：語法骨架'}</button>
+    const nx = nextOf(view);
+    const uses = L.cards.map(id => `<button class="use-chip" data-card="${id}">${esc(G.CARDS.find(c => c.id === id).title)}</button>`).join('');
+    const answerBlock = st.passed ? `
+      <div class="solved pop">
+        <div class="solved-head"><span class="check">${ICON.check}</span>已破解　<span class="muted" style="font-weight:400">你的答案</span><span class="solved-answer">${esc(st.answer)}</span></div>
+        <p class="clue">${esc(fill(L.clue))}</p>
+        <button class="cta cta-lg next-cta" id="nextBtn">前往${levelName(nx)}<span class="cta-icon">${ICON.arrow}</span></button>
+      </div>` : `
+      <div class="answer">
+        <label for="ans">${esc(L.prompt)}</label>
+        <div class="answer-field" id="ansField">
+          <input id="ans" placeholder="${esc(L.placeholder)}" autocomplete="off">
+          <button class="cta" id="ansBtn">送出線索<span class="cta-icon">${ICON.send}</span></button>
         </div>
-        ${st.hints[0] ? `<div class="hint-box"><b>提示一</b><pre>${esc(fill(L.hints[0]))}</pre></div>` : ''}
-        ${st.hints[1] ? `<div class="hint-box"><b>提示二</b><pre>${esc(fill(L.hints[1]))}</pre></div>` : ''}
+        <p class="feedback" id="fb">${st.attempts ? `<span class="muted">已嘗試 ${st.attempts} 次</span>` : ''}</p>
       </div>`;
-    const submit = () => checkAnswer(view, $('#ans').value);
-    $('#ansBtn').onclick = submit;
-    $('#ans').addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+    const hint = (i, title) => {
+      const opened = st.hints[i], disabled = i === 1 && !st.hints[0];
+      return `<div class="hint">
+        <button class="hint-toggle" id="h${i + 1}" ${disabled ? 'disabled' : ''}><span class="hint-no">提示 ${i + 1}</span>${title}<span class="hint-state">${opened ? '已開啟' : disabled ? '先看提示 1' : '打開（不扣分）'}</span></button>
+        ${opened ? `<div class="hint-body"><pre>${esc(fill(L.hints[i]))}</pre></div>` : ''}
+      </div>`;
+    };
+    $('#caseFile').innerHTML = `
+      <article class="shell case enter"><div class="core">
+        <div class="case-meta"><span class="eyebrow">第 ${L.no} 關 · CASE ${S.version + 1}-${L.no}</span><span class="status ${st.passed ? 'solved' : ''}">${st.passed ? '已破解' : '調查中'}</span></div>
+        <h2 class="case-title">${esc(L.title)}</h2>
+        <p class="story">${esc(fill(L.story))}</p>
+        <div class="task"><span class="label">任務</span><p>${esc(fill(L.task))}</p></div>
+        <div class="uses"><span class="label">會用到</span>${uses}</div>
+        ${answerBlock}
+        <div class="hints">${hint(0, '方向')}${hint(1, '語法骨架')}</div>
+      </div></article>`;
+    if (!st.passed) {
+      const submit = () => checkAnswer(view, $('#ans').value);
+      $('#ansBtn').onclick = submit;
+      $('#ans').addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+    } else {
+      $('#nextBtn').onclick = () => goTo(nx);
+    }
+    $('#caseFile').querySelectorAll('.use-chip').forEach(b => { b.onclick = () => revealCard(b.dataset.card); });
     $('#h1').onclick = () => { if (!st.hints[0]) { st.hints[0] = true; save(); renderLevel(); } };
     $('#h2').onclick = () => { if (st.hints[0] && !st.hints[1]) { st.hints[1] = true; save(); renderLevel(); } };
     renderNotebook();
@@ -149,19 +217,22 @@
     const ref = fill(L.ref);
     const mine = st.passSql;
     const nw = mine ? N.detectNonWhitelist(mine) : [];
+    const nx = nextOf(view);
     box.innerHTML = `
-      <div class="card notebook">
-        <h3>破案筆記・第 ${L.no} 關</h3>
-        <p class="clue">${esc(fill(L.clue))}</p>
-        <div class="code-head"><b>參考解法</b><button class="btn small" id="useRef">放入編輯器</button></div>
+      <section class="shell notebook enter" style="--d:.06s"><div class="core">
+        <span class="eyebrow">破案筆記</span>
+        <h3>第 ${L.no} 關怎麼查</h3>
+        <div class="nb-head"><span>參考解法</span><button class="mini" id="useRef">加到編輯器</button></div>
         <pre class="code">${esc(ref)}</pre>
         <ul>${L.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>
-        <div class="code-head"><b>你的寫法（過關前最後一次成功執行）</b></div>
-        ${mine ? `<pre class="code">${esc(mine)}</pre>` : '<p class="muted">沒有紀錄到成功執行的查詢。</p>'}
+        <div class="nb-head"><span>你的寫法（過關前最後一次成功執行）</span></div>
+        ${mine ? `<pre class="code">${esc(mine)}</pre>` : '<p class="muted" style="margin:0">沒有紀錄到成功執行的查詢。</p>'}
         ${nw.length ? `<div class="gentle">你的寫法用到了 <b>${esc(nw.join('、'))}</b>，這些期中後才會教。上面的參考解法只用學過的語法，可以對照看看。</div>` : ''}
-        ${mine ? '<p class="muted" style="font-size:13px;margin-top:8px">寫法不一樣沒關係，只要邏輯對、結果能支持答案就好。比較看看欄位、條件、排序有什麼差別。</p>' : ''}
-      </div>`;
-    $('#useRef').onclick = () => { $('#sql').value = ref; persistDraft(); $('#sql').focus(); };
+        ${mine ? '<p class="muted" style="font-size:13px;margin:10px 0 0">寫法不一樣沒關係，只要邏輯對、結果能支持答案就好。比較看看欄位、條件、排序有什麼差別。</p>' : ''}
+        <div class="nb-foot"><button class="cta next-cta" id="nextBtn2">讀完了，前往${levelName(nx)}<span class="cta-icon">${ICON.arrow}</span></button></div>
+      </div></section>`;
+    $('#useRef').onclick = () => appendAndSelect(ref);
+    $('#nextBtn2').onclick = () => goTo(nx);
   }
 
   function checkAnswer(k, raw) {
@@ -173,18 +244,12 @@
       st.passed = true; st.passedAt = nowIso(); st.answer = N.normalize(k, raw);
       const ok = st.queries.filter(q => q.ok);
       st.passSql = ok.length ? ok[ok.length - 1].sql : null;
-      save(); renderHeader(); renderNav(); renderLevel();
-      $('#notebook').scrollIntoView({ behavior: 'smooth', block: 'start' });
-      const next = ALL[ALL.indexOf(k) + 1];
-      if (next) {
-        const nb = document.createElement('button');
-        nb.className = 'btn primary'; nb.style.marginTop = '8px';
-        nb.textContent = next === 'F' ? '前往結案 →' : `前往第 ${next.slice(1)} 關 →`;
-        nb.onclick = () => { view = next; renderNav(); renderLevel(); renderCards(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-        $('#notebook .notebook').appendChild(nb);
-      }
+      save(); renderHeader(); renderLevel();
+      toast(`✔ 第 ${k.slice(1)} 關破解！`);
+      $('#nextBtn').focus({ preventScroll: true });
     } else {
       save();
+      const f = $('#ansField'); f.classList.remove('shake'); void f.offsetWidth; f.classList.add('shake');
       $('#fb').innerHTML = `<span class="err">線索對不上，再查查看。</span> <span class="muted">（第 ${st.attempts} 次嘗試）</span>`;
     }
   }
@@ -192,22 +257,23 @@
   /* ---------- finale ---------- */
   function renderFinale() {
     const st = S.levels.F, F = G.FINALE;
-    if (!unlocked('F')) { $('#caseFile').innerHTML = '<h2>結案</h2><p class="muted">完成第 8 關後解鎖。</p>'; $('#notebook').innerHTML = ''; return; }
+    if (!unlocked('F')) { $('#caseFile').innerHTML = '<article class="shell case"><div class="core"><h2 class="case-title">結案</h2><p class="muted">完成第 8 關後解鎖。</p></div></article>'; $('#notebook').innerHTML = ''; return; }
     const opts = C.vendors.map(v => `<option value="${v[0]}" ${st.answer === v[0] ? 'selected' : ''}>${v[0]}｜${esc(v[1])}（${esc(v[2])}）</option>`).join('');
     $('#caseFile').innerHTML = `
-      <span class="stamp ${st.passed ? 'done' : ''}">${st.passed ? '已結案' : '結案'}</span>
-      <div class="case-no">CASE ${S.version + 1}-FINAL</div>
-      <h2>${esc(F.title)}</h2>
-      <div class="task">${esc(F.task)}</div>
-      <div class="final-grid">
-        <div class="field"><label for="culprit">幕後主使的攤商</label>
-          <select id="culprit" ${st.passed ? 'disabled' : ''}><option value="">— 請選擇 —</option>${opts}</select></div>
-        ${F.fields.map(f => `<div class="field"><label for="f_${f.id}">${esc(f.label)}</label>
-          <textarea id="f_${f.id}" placeholder="${esc(f.ph)}">${esc(S.finale[f.id])}</textarea>
-          <div class="counter" id="c_${f.id}"></div></div>`).join('')}
-      </div>
-      <button class="btn primary" id="finalBtn" style="margin-top:12px">${st.passed ? '更新推理簡答' : '送出指認'}</button>
-      <div class="feedback" id="fb"></div>`;
+      <article class="shell case enter"><div class="core">
+        <div class="case-meta"><span class="eyebrow">結案 · CASE ${S.version + 1}-FINAL</span><span class="status ${st.passed ? 'solved' : ''}">${st.passed ? '已結案' : '待指認'}</span></div>
+        <h2 class="case-title">${esc(F.title)}</h2>
+        <div class="task"><span class="label">任務</span><p>${esc(F.task)}</p></div>
+        <div class="final-grid">
+          <div class="field"><label for="culprit">幕後主使的攤商</label>
+            <select id="culprit" ${st.passed ? 'disabled' : ''}><option value="">— 請選擇 —</option>${opts}</select></div>
+          ${F.fields.map(f => `<div class="field"><label for="f_${f.id}">${esc(f.label)}</label>
+            <textarea id="f_${f.id}" placeholder="${esc(f.ph)}">${esc(S.finale[f.id])}</textarea>
+            <div class="counter" id="c_${f.id}"></div></div>`).join('')}
+        </div>
+        <button class="cta cta-lg" id="finalBtn">${st.passed ? '更新推理簡答' : '送出指認'}<span class="cta-icon">${ICON.check}</span></button>
+        <p class="feedback" id="fb"></p>
+      </div></article>`;
     const count = () => F.fields.forEach(f => {
       const n = N.toHalf($('#f_' + f.id).value).length;
       const el = $('#c_' + f.id); el.textContent = `${n} 字（至少 ${F.minChars} 字）`; el.className = 'counter' + (n < F.minChars ? ' short' : '');
@@ -223,38 +289,32 @@
       st.attempts++;
       if (N.answerHash(S.version, 'F', pick) === C.ansHash[S.version].F) {
         st.passed = true; st.passedAt = nowIso(); st.answer = pick; S.finale.submittedAt = nowIso();
-        save(); renderHeader(); renderNav(); renderFinale();
+        save(); renderHeader(); renderFinale(); toast('✔ 結案！記得下載報告上傳');
       } else {
         st.answer = null; save();
         $('#fb').innerHTML = `<span class="err">證據還串不起來，回頭看看第 8 關的結果。</span> <span class="muted">（第 ${st.attempts} 次嘗試）</span>`;
       }
     };
     $('#notebook').innerHTML = st.passed ? `
-      <div class="card notebook epilogue">
-        <h3>結案報告</h3>
-        <p class="clue">真相大白：<b>${esc(C.vendors.find(v => v[0] === st.answer)[1])}</b> 的老闆用兩支手機開了一批人頭帳號，在夜市沒營業的時段刷新會員券，再登入自家後台把訂單按成「已完成」，詐領平台補貼。</p>
+      <section class="shell notebook epilogue enter" style="--d:.06s"><div class="core">
+        <span class="eyebrow">結案報告</span>
+        <h3>真相大白</h3>
+        <p class="clue" style="color:var(--ink-2)"><b>${esc(C.vendors.find(v => v[0] === st.answer)[1])}</b> 的老闆用兩支手機開了一批人頭帳號，在夜市沒營業的時段刷新會員券，再登入自家後台把訂單按成「已完成」，詐領平台補貼。</p>
         <p>${esc(F.epilogue[0])}</p>
         <ul>${F.epilogue.slice(1, -1).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
         <p class="muted">${esc(F.epilogue[F.epilogue.length - 1])}</p>
-        <button class="btn amber" id="reportBtn2">下載結案報告（.html）</button>
-        <p class="muted" style="font-size:13px">下載後把檔案上傳到教學平台。之後修改推理簡答，記得重新下載。</p>
-      </div>` : '';
+        <div class="nb-foot"><button class="cta cta-lg next-cta" id="reportBtn2">下載結案報告（.html）<span class="cta-icon">${ICON.arrow}</span></button>
+        <p class="muted" style="font-size:13px;margin:10px 0 0">下載後把檔案上傳到教學平台。之後修改推理簡答，記得重新下載。</p></div>
+      </div></section>` : '';
     if (st.passed) $('#reportBtn2').onclick = downloadReport;
   }
 
   /* ---------- SQL runner ---------- */
-  function persistDraft() { S.draft = $('#sql').value; save(); }
-  function runSql() {
-    const ta = $('#sql');
-    const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
-    const text = (sel.trim() ? sel : ta.value).trim();
-    if (!text) return;
-    persistDraft();
-    S.runs++;
+  function renderResult(text, opts) {
+    opts = opts || {};
+    const nw = opts.record ? N.detectNonWhitelist(text) : [];
+    let meta = '', body = '';
     const rec = { t: nowIso(), sql: text.slice(0, 4000), ok: true, rows: 0, err: null };
-    const nw = N.detectNonWhitelist(text);
-    if (nw.length) S.nonWhitelist.push({ level: view, items: nw, sql: text.slice(0, 1000), t: rec.t });
-    let html = '';
     try {
       const res = db.exec(text);
       const changed = db.getRowsModified();
@@ -262,68 +322,117 @@
         const r = res[res.length - 1];
         rec.rows = r.values.length;
         const shown = r.values.slice(0, 300);
-        html = `<div class="result-meta">共 <b>${r.values.length}</b> 列${r.values.length > 300 ? '（只顯示前 300 列）' : ''}${res.length > 1 ? `・共執行 ${res.length} 段查詢，顯示最後一段` : ''}</div>
-          <table class="grid"><thead><tr>${r.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
-          <tbody>${shown.map(row => `<tr>${row.map(v => v === null ? '<td><span class="null">NULL</span></td>' : `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+        meta = `<span class="result-meta-count">共 <b>${r.values.length}</b> 列${r.values.length > 300 ? '（只顯示前 300 列）' : ''}${res.length > 1 ? `・執行了 ${res.length} 段，顯示最後一段` : ''}</span>`;
+        body = `<table class="grid"><thead><tr><th>#</th>${r.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+          <tbody>${shown.map((row, i) => `<tr><td class="num">${i + 1}</td>${row.map(v => v === null ? '<td><span class="null">NULL</span></td>' : `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+        if (opts.label) body = `<div class="result-note tip">${esc(opts.label)}</div>` + body;
       } else {
-        html = `<div class="result-meta ok">執行成功${changed ? `，影響 ${changed} 列` : '（沒有回傳資料列）'}。</div>`;
-        if (/^\s*(INSERT|UPDATE|DELETE)/i.test(text)) html += '<p class="muted" style="font-size:13px">你修改了瀏覽器裡的案件資料。想還原，按「重置資料庫」。</p>';
+        meta = '執行成功';
+        body = `<div class="result-note okay">執行成功${changed ? `，影響 ${changed} 列` : '（沒有回傳資料列）'}。</div>`;
+        if (/^\s*(INSERT|UPDATE|DELETE)/i.test(text)) body += '<p class="empty">你修改了瀏覽器裡的案件資料。想還原，按「重置資料庫」。</p>';
+        renderSchema();
       }
     } catch (e) {
       rec.ok = false; rec.err = String(e.message || e);
-      html = `<div class="result-meta err">錯誤：${esc(rec.err)}</div>${errorTip(rec.err)}`;
+      meta = '<span class="err">錯誤</span>';
+      body = `<div class="result-note err">錯誤：${esc(rec.err)}</div>${errorTip(rec.err)}`;
     }
-    if (nw.length) html = `<div class="gentle note-nw" style="margin:0 0 10px">（已記錄）這句用到了期中前還沒教的 <b>${esc(nw.join('、'))}</b>。可以執行，不扣分；但這次只用學過的語法就能破案，試試看「語法手冊」裡的寫法。</div>` + html;
+    if (nw.length) body = `<div class="result-note tip">（已記錄）這句用到了期中前還沒教的 <b>${esc(nw.join('、'))}</b>。可以執行，不扣分；但這次只用學過的語法就能破案，試試看右邊「語法手冊」裡的寫法。</div>` + body;
+    $('#resultMeta').innerHTML = meta;
+    $('#result').innerHTML = body;
+    $('#result').scrollTop = 0;
+    return { rec, nw };
+  }
+  function runSql() {
+    const ta = $('#sql');
+    const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+    const text = (sel.trim() ? sel : ta.value).trim();
+    if (!text) return;
+    persistDraft();
+    S.runs++;
+    const { rec, nw } = renderResult(text, { record: true });
+    if (nw.length) S.nonWhitelist.push({ level: view, items: nw, sql: text.slice(0, 1000), t: rec.t });
     const qs = S.levels[view].queries;
     qs.push(rec); if (qs.length > MAX_QUERIES) qs.splice(0, qs.length - MAX_QUERIES);
     save();
-    showTab('result');
-    $('#tab-result').innerHTML = html;
   }
   function errorTip(msg) {
     const tips = [
-      [/no such table/i, '資料表名稱打錯了嗎？到「資料表」分頁確認名稱。'],
-      [/no such column/i, '欄位名稱打錯，或忘了在欄位前加上表別名（例如 o.order_id）。'],
+      [/no such table/i, '資料表名稱打錯了嗎？看右邊「資料表」確認名稱，也可以直接點表名插入。'],
+      [/no such column/i, '欄位名稱打錯，或忘了在欄位前加上表別名（例如 o.order_id）。右邊「資料表」展開就能看到所有欄位。'],
       [/ambiguous column/i, '兩張表都有這個欄位，請在前面加上表別名，例如 o.member_id。'],
       [/syntax error/i, '語法錯誤：檢查逗號、引號是否成對、關鍵字順序（SELECT → FROM → JOIN → WHERE → ORDER BY → LIMIT）。'],
       [/incomplete input/i, 'SQL 好像沒寫完，檢查括號或引號有沒有成對。']
     ];
     const hit = tips.find(([re]) => re.test(msg));
-    return hit ? `<div class="gentle">${esc(hit[1])}</div>` : '';
+    return hit ? `<div class="result-note tip">${esc(hit[1])}</div>` : '';
   }
 
-  /* ---------- tabs ---------- */
-  function showTab(name) {
-    tab = name;
-    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-    ['result', 'schema', 'cards'].forEach(n => { $('#tab-' + n).hidden = n !== name; });
+  /* ---------- 參考欄：資料表 ---------- */
+  function tablesOfLevel() {
+    if (view === 'F') return [];
+    const ref = levelOf(view).ref;
+    return Object.keys(G.TABLE_DOCS).filter(t => new RegExp('\\b(FROM|JOIN)\\s+' + t + '\\b', 'i').test(ref));
   }
   function renderSchema() {
+    const box = $('#schema');
+    const openNow = new Set([...box.querySelectorAll('details[open]')].map(d => d.dataset.t));
+    const focus = tablesOfLevel();
+    const isFirst = !box.dataset.view || box.dataset.view !== view;
+    box.dataset.view = view;
     const names = Object.keys(G.TABLE_DOCS);
-    $('#tab-schema').innerHTML = names.map(t => {
+    const ordered = focus.concat(names.filter(t => !focus.includes(t)));
+    box.innerHTML = ordered.map(t => {
       let cols = [], n = '?';
       try { cols = db.exec(`PRAGMA table_info(${t})`)[0].values.map(r => r[1]); n = db.exec(`SELECT COUNT(*) FROM ${t}`)[0].values[0][0]; } catch (e) { /* 被刪表時忽略 */ }
-      return `<div class="schema-item"><h4><span>${t} <span class="muted" style="font-family:var(--sans);font-size:12px">${n} 列</span></span><button class="btn small" data-t="${t}">預覽</button></h4>
-        <p>${esc(G.TABLE_DOCS[t])}</p><p style="font-family:var(--mono)">${cols.map(esc).join(', ')}</p></div>`;
-    }).join('') + '<p class="muted" style="font-size:13px">關聯：orders.member_id → members；orders.vendor_id → vendors；orders.coupon_code → coupons；deliveries.order_id → orders；vendor_logins.vendor_id → vendors。</p>';
-    $('#tab-schema').querySelectorAll('button[data-t]').forEach(b => { b.onclick = () => { $('#sql').value = `SELECT * FROM ${b.dataset.t} LIMIT 10;`; runSql(); }; });
+      const desc = G.TABLE_DOCS[t].replace(/（.*$/, '');
+      const open = isFirst ? focus.includes(t) : openNow.has(t);
+      return `<details class="tbl" data-t="${t}" ${open ? 'open' : ''}>
+        <summary><span class="caret"></span><span class="tbl-name">${t}</span><span class="tbl-count">${esc(desc)} · ${n} 列</span>${focus.includes(t) ? '<span class="tbl-flag">本關</span>' : ''}<button class="mini" data-preview="${t}" title="在下方結果區看前 10 列（不會動到你的 SQL）">預覽</button></summary>
+        <div class="tbl-body">
+          <p class="tbl-desc">${esc(G.TABLE_DOCS[t])}</p>
+          <div class="cols"><button class="colchip tname" data-ins="${t}">${t}</button>${cols.map(c => `<button class="colchip" data-ins="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+        </div>
+      </details>`;
+    }).join('') + `<p class="relations">表之間的關聯（JOIN 時用）<br>${RELATIONS.map(([a, b]) => `<code>${a}</code> → <code>${b}</code>`).join('<br>')}</p>`;
+    box.querySelectorAll('[data-preview]').forEach(b => {
+      b.onclick = e => {
+        e.preventDefault(); e.stopPropagation();
+        renderResult(`SELECT * FROM ${b.dataset.preview} LIMIT 10;`, { label: `預覽 ${b.dataset.preview} 的前 10 列（你的 SQL 沒有被改動）` });
+        if (window.innerWidth <= 1280) $('.result-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+    });
+    box.querySelectorAll('[data-ins]').forEach(b => { b.onclick = () => insertAtCursor(b.dataset.ins); });
   }
-  function cardHtml(c, hot) {
-    return `<div class="syntax-card ${hot ? 'hot' : ''}"><h4><span><span class="week">${esc(c.week)}</span>${esc(c.title)}</span><button class="btn small" data-c="${c.id}">放入編輯器</button></h4>
-      <p>${esc(c.desc)}</p><pre class="code">${esc(c.sql)}</pre></div>`;
+
+  /* ---------- 參考欄：語法手冊 ---------- */
+  function synHtml(c, hot) {
+    return `<details class="syn ${hot ? 'hot' : ''}" data-card="${c.id}" ${hot ? 'open' : ''}>
+      <summary><span class="caret"></span><span class="syn-title">${esc(c.title)}</span><span class="syn-week">${esc(c.week)}</span></summary>
+      <div class="syn-body"><p>${esc(c.desc)}</p><pre class="code">${esc(c.sql)}</pre>
+        <div class="syn-actions"><button class="mini" data-c="${c.id}">加到編輯器</button></div></div>
+    </details>`;
   }
   function renderCards() {
     const hotIds = view === 'F' ? [] : levelOf(view).cards;
     const hot = G.CARDS.filter(c => hotIds.includes(c.id));
-    const weeks = [...new Set(G.CARDS.map(c => c.week))];
-    $('#tab-cards').innerHTML =
-      (hot.length ? `<div class="section-label">第 ${view.slice(1)} 關會用到</div>${hot.map(c => cardHtml(c, true)).join('')}` : '') +
-      `<div class="section-label">全部學過的語法</div>` +
-      weeks.map(w => G.CARDS.filter(c => c.week === w).map(c => cardHtml(c, false)).join('')).join('') +
-      '<p class="muted" style="font-size:13px">範例都在本案資料庫上執行，可以放心改寫來試。</p>';
-    $('#tab-cards').querySelectorAll('button[data-c]').forEach(b => {
-      b.onclick = () => { $('#sql').value = G.CARDS.find(c => c.id === b.dataset.c).sql; persistDraft(); $('#sql').focus(); };
+    const rest = G.CARDS.filter(c => !hotIds.includes(c.id));
+    $('#cards').innerHTML =
+      (hot.length ? `<div class="syn-group hot">第 ${view.slice(1)} 關會用到</div>${hot.map(c => synHtml(c, true)).join('')}` : '') +
+      `<div class="syn-group">其他學過的語法</div>${rest.map(c => synHtml(c, false)).join('')}` +
+      '<p class="relations">範例都跑在本案資料庫上。「加到編輯器」會接在你的 SQL 後面並選取，不會蓋掉你寫的內容。</p>';
+    $('#cards').querySelectorAll('button[data-c]').forEach(b => {
+      b.onclick = () => appendAndSelect(G.CARDS.find(c => c.id === b.dataset.c).sql);
     });
+  }
+  function revealCard(id) {
+    const el = $(`#cards details[data-card="${id}"]`);
+    if (!el) return;
+    el.open = true;
+    const box = $('#cards');
+    box.scrollTo({ top: el.offsetTop - box.offsetTop - 8, behavior: 'smooth' });
+    if (window.innerWidth <= 1280) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
   }
 
   /* ---------- profile ---------- */
@@ -332,7 +441,7 @@
     $('#profileModal').hidden = false;
     $('#editSid').oninput = () => {
       const v = N.versionOf($('#editSid').value);
-      $('#editNote').textContent = v >= 0 && v !== S.version ? `⚠ 尾數改變後會變成第 ${v + 1} 號卷宗，目前進度會重新開始。` : '';
+      $('#editNote').textContent = v >= 0 && v !== S.version ? `尾數改變後會變成第 ${v + 1} 號卷宗，目前進度會重新開始。` : '';
     };
   }
   function bindProfile() {
@@ -423,13 +532,17 @@ ${G.FINALE.fields.map(f => `<h3>${esc(f.label)}</h3><div class="box">${esc(S.fin
   function bindGame() {
     $('#runBtn').onclick = runSql;
     $('#clearBtn').onclick = () => { $('#sql').value = ''; persistDraft(); $('#sql').focus(); };
-    $('#resetDbBtn').onclick = async () => { if (!confirm('把案件資料庫還原成原始狀態？（你的關卡進度不受影響）')) return; await openDb(); renderSchema(); $('#tab-result').innerHTML = '<p class="ok">資料庫已重置。</p>'; showTab('result'); };
+    $('#resetDbBtn').onclick = async () => {
+      if (!confirm('把案件資料庫還原成原始狀態？（你的關卡進度不受影響）')) return;
+      await openDb(); renderSchema();
+      $('#resultMeta').textContent = ''; $('#result').innerHTML = '<div class="result-note okay">資料庫已重置。</div>';
+    };
     $('#reportBtn').onclick = downloadReport;
+    $('#whoBtn').onclick = openProfile;
     $('#restartBtn').onclick = () => {
       if (!confirm('重新開始會清除這台電腦上的所有進度（建議先下載進度報告）。確定嗎？')) return;
       localStorage.removeItem(STORE); location.reload();
     };
-    document.querySelectorAll('.tabs button').forEach(b => { b.onclick = () => { showTab(b.dataset.tab); if (b.dataset.tab === 'schema') renderSchema(); }; });
     let t = null;
     $('#sql').addEventListener('input', () => { clearTimeout(t); t = setTimeout(persistDraft, 600); });
     $('#sql').addEventListener('keydown', e => {
