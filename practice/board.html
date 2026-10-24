@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>即時排行榜｜SQL 課堂練習</title>
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1235a513">
+  <script src="config.js"></script>
+  <script src="packs/index.js?v=5004c7b9"></script>
+  <script src="board.js?v=085810e4" defer></script>
+</head>
+<body class="board-body">
+  <div class="ambient" aria-hidden="true"></div>
+  <main class="board">
+    <header class="board-head">
+      <div>
+        <span class="eyebrow" id="bEyebrow">SQL 課堂練習・即時排行榜</span>
+        <h1 class="board-title" id="bTitle">排行榜</h1>
+      </div>
+      <div class="board-stats">
+        <div class="stat"><span class="label">參加人數</span><b id="bCount">0</b></div>
+        <div class="stat"><span class="label">全部完成</span><b id="bAll">0</b></div>
+        <div class="stat"><span class="label">已經過</span><b id="bTimer">00:00</b></div>
+      </div>
+    </header>
+
+    <section class="board-grid">
+      <div class="shell"><div class="core board-list-wrap">
+        <ol class="board-list" id="bList"><li class="board-empty">等待第一位同學提交…</li></ol>
+      </div></div>
+      <aside class="shell"><div class="core pad">
+        <span class="kicker">各題完成人數</span>
+        <div id="bQs" class="qbars"></div>
+        <p class="fineprint" id="bUpdated"></p>
+        <div class="board-ctrl">
+          <button class="pill" id="bStart">計時歸零</button>
+          <button class="pill quiet" id="bMask" title="切換學號遮罩">學號：完整</button>
+        </div>
+      </div></aside>
+    </section>
+
+    <div class="shell board-setup" id="bSetup" hidden><div class="core pad">
+      <span class="kicker">設定排行榜</span>
+      <p class="muted">還沒有設定 Apps Script 網址。請把部署後的網址貼在 <code>config.js</code> 的 ENDPOINT，或暫時貼在下面。</p>
+      <div class="field"><label for="sApi">Apps Script 網址</label><input id="sApi" placeholder="https://script.google.com/macros/s/.../exec"></div>
+      <button class="cta" id="sGo">開始顯示</button>
+    </div></div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SQL 課堂練習｜大數據資料庫應用實務</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='6' width='24' height='20' rx='5' fill='%23f0b35a'/%3E%3Cpath d='M9 13h14M9 18h9' stroke='%23231505' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1235a513">
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
+  <script src="config.js"></script>
+  <script src="judge.js?v=d81905e4"></script>
+  <script src="packs/index.js?v=5004c7b9"></script>
+  <script src="app.js?v=3171ad85" defer></script>
+</head>
+<body>
+  <div class="ambient" aria-hidden="true"></div>
+  <div id="loading" class="loading">載入中…</div>
+
+  <!-- 開場 -->
+  <main id="intro" class="intro" hidden>
+    <section class="intro-hero enter">
+      <span class="eyebrow">大數據資料庫應用實務・課堂練習</span>
+      <h1 class="display">SQL 課堂練習</h1>
+      <p class="lead">每週 10 題，從基礎到挑戰。寫 SQL、按「提交」，系統會比對查詢結果並給分；你的成績會即時出現在教室的排行榜上。</p>
+      <div class="intro-body">
+        <p>判分只看「查出來的結果」，不看寫法：欄位名稱、別名、欄位順序都不影響。答錯可以一直重試，排行榜只算每題最高分。</p>
+        <p>也可以上傳你自己的 .db 檔（例如專題資料），在這裡自由練習 SQL；自訂資料庫不計分。</p>
+      </div>
+    </section>
+
+    <aside class="intro-side enter" style="--d:.08s">
+      <div class="shell" id="startCard">
+        <div class="core pad">
+          <span class="kicker">開始練習</span>
+          <div class="field"><label for="sid">學號</label><input id="sid" autocomplete="off" placeholder="例如 C112345678"></div>
+          <div class="field"><label for="nick">暱稱（排行榜上顯示）</label><input id="nick" autocomplete="off" maxlength="12" placeholder="最多 12 個字"></div>
+          <div class="field"><label for="packSel">練習單元</label><select id="packSel"></select></div>
+          <div class="row-gap" style="margin-top:6px">
+            <button class="cta cta-lg" id="startCourse">使用課程資料庫<span class="cta-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
+          </div>
+          <div class="upload-row">
+            <label class="link-btn upload-label" for="dbFile">或上傳自己的 .db 檔（自由練習）</label>
+            <input type="file" id="dbFile" accept=".db,.sqlite,.sqlite3,.db3" hidden>
+          </div>
+          <p class="feedback err" id="startErr"></p>
+        </div>
+      </div>
+      <p class="fineprint" id="boardStatus"></p>
+      <p class="fineprint">資料庫只在你的瀏覽器裡執行，不會上傳。送到排行榜的只有：學號、暱稱、題號、分數、嘗試次數、提示次數、作答時間與你提交的 SQL。</p>
+    </aside>
+  </main>
+
+  <!-- 練習 -->
+  <div id="game" hidden>
+    <header class="island">
+      <div class="island-id">
+        <span class="brand"><i class="brand-dot"></i>SQL 練習</span>
+        <span class="dossier" id="packTitle"></span>
+        <button class="who" id="whoBtn" title="修改學號／暱稱"></button>
+      </div>
+      <nav class="stepper" id="qNav" aria-label="題目"></nav>
+      <div class="island-actions">
+        <span class="db-chip" id="dbChip"></span>
+        <span class="score-chip" id="scoreChip"></span>
+        <button class="pill quiet" id="switchBtn">換單元／資料庫</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="col col-case" id="colCase" aria-label="題目">
+        <div id="qCard"></div>
+        <div id="qNote"></div>
+      </section>
+
+      <section class="col col-work" aria-label="SQL 工作區">
+        <div class="shell panel editor-panel">
+          <div class="core">
+            <div class="panel-head">
+              <span class="panel-title">SQL 編輯器</span>
+              <span class="panel-hint">反白一段 SQL，就只執行或提交那一段</span>
+            </div>
+            <textarea id="sql" class="sql" spellcheck="false" aria-label="SQL 編輯器"></textarea>
+            <div class="toolbar">
+              <button class="pill" id="runBtn" title="只執行看結果，不計分（Ctrl+Enter）">執行</button>
+              <button class="cta" id="submitBtn" title="執行並判分（Ctrl+Shift+Enter）">提交判分<span class="cta-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>
+              <span class="kbd-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> 執行　<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> 提交</span>
+              <span class="spacer"></span>
+              <button class="link-btn" id="clearBtn">清空</button>
+              <button class="link-btn" id="resetDbBtn" title="把資料庫還原成剛載入的狀態">重置資料庫</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="shell panel result-panel">
+          <div class="core">
+            <div class="panel-head">
+              <span class="panel-title">查詢結果</span>
+              <span class="panel-hint" id="resultMeta"></span>
+            </div>
+            <div class="result-body" id="result"><p class="empty">按「執行」看結果；按「提交判分」計分。</p></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="col col-ref" aria-label="參考資料">
+        <div class="shell panel ref-block ref-tables">
+          <div class="core">
+            <div class="panel-head">
+              <span class="panel-title">資料表</span>
+              <span class="panel-hint">點表名或欄位，插入到游標處</span>
+            </div>
+            <div class="ref-scroll" id="schema"></div>
+          </div>
+        </div>
+        <div class="shell panel ref-block ref-syntax">
+          <div class="core">
+            <div class="panel-head">
+              <span class="panel-title">語法手冊</span>
+              <span class="panel-hint">這題會用到的排在最上面</span>
+            </div>
+            <div class="ref-scroll" id="cards"></div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="modal" id="profileModal" hidden>
+    <div class="shell modal-card">
+      <div class="core pad">
+        <span class="kicker">修改學號／暱稱</span>
+        <div class="field"><label for="editSid">學號</label><input id="editSid" autocomplete="off"></div>
+        <div class="field"><label for="editNick">暱稱</label><input id="editNick" autocomplete="off" maxlength="12"></div>
+        <p class="feedback err" id="editErr"></p>
+        <div class="row-gap">
+          <button class="cta" id="editSave">儲存<span class="cta-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>
+          <button class="link-btn" id="editCancel">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
