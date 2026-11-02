@@ -15,6 +15,22 @@
   const ROOM = (params.get('room') || CFG.ROOM || 'main').slice(0, 20);
   const ENDPOINT = params.get('api') || CFG.ENDPOINT || '';
 
+  /* ---------- 時間鎖 ---------- */
+  const PREVIEW = params.get('preview') === '1';   // 老師試玩：忽略時間鎖
+  // 只給測試用：window.PRACTICE_NOW（毫秒或 ISO 字串）存在時，取代現在時間
+  function clock() {
+    const v = window.PRACTICE_NOW;
+    if (v == null) return Date.now();
+    return typeof v === 'string' ? Date.parse(v) : Number(v);
+  }
+  const isOpen = p => PREVIEW || !p.opensAt || clock() >= Date.parse(p.opensAt);
+  // 開放時間顯示成「11/16 18:00」（直接取 opensAt 字串裡的台灣時間，不受學生電腦時區影響）
+  function openText(p) {
+    const m = /^\d{4}-(\d\d)-(\d\d)T(\d\d):(\d\d)/.exec(p.opensAt || '');
+    return m ? `${m[1]}/${m[2]} ${m[3]}:${m[4]}` : p.opensAt;
+  }
+  const lockedMsg = p => `「${p.date}　${p.title}」將在 ${openText(p)} 開放，現在還不能作答`;
+
   let S = null;            // 本機狀態
   let SQLlib = null, db = null, dbBytes = null;
   let pack = null;         // 目前單元（含解碼後的題目）
@@ -81,10 +97,21 @@
 
   /* ---------- 開場 ---------- */
   function renderIntro() {
-    $('#packSel').innerHTML = PACKS.map(p => `<option value="${p.id}">${esc(p.date)}　${esc(p.title)}</option>`).join('');
+    $('#packSel').innerHTML = PACKS.map(p => isOpen(p)
+      ? `<option value="${p.id}">${esc(p.date)}　${esc(p.title)}</option>`
+      : `<option value="${p.id}" disabled>${esc(p.date)}　${esc(p.title)}（${esc(openText(p))} 開放）</option>`).join('');
+    $('#previewNote').hidden = !PREVIEW;
+    $('#previewChip').hidden = !PREVIEW;
     const saved = load();
     if (saved) { $('#sid').value = saved.sid || ''; $('#nick').value = saved.nick || ''; if (saved.lastPack) $('#packSel').value = saved.lastPack; }
     const want = params.get('pack'); if (want && PACKS.some(p => p.id === want)) $('#packSel').value = want;
+    // lastPack／?pack= 指到還沒開放的單元時，改選最新一個已開放的單元
+    const picked = PACKS.find(p => p.id === $('#packSel').value);
+    if (!picked || !isOpen(picked)) {
+      const openPacks = PACKS.filter(isOpen), latest = openPacks[openPacks.length - 1];
+      if (latest) $('#packSel').value = latest.id;
+      if (picked && want === picked.id) $('#startErr').textContent = lockedMsg(picked);
+    }
     S = saved || { sid: '', nick: '', packs: {}, queue: [] };
     renderBoardStatus();
     $('#startCourse').onclick = () => start('course');
@@ -102,8 +129,13 @@
   async function start(kind, file) {
     const id = readIdentity($('#sid'), $('#nick'), $('#startErr'));
     if (!id) { $('#dbFile').value = ''; return; }
-    S.sid = id.sid; S.nick = id.nick; S.lastPack = $('#packSel').value; save();
     const def = PACKS.find(p => p.id === $('#packSel').value);
+    if (!def || !isOpen(def)) {
+      $('#startErr').textContent = def ? lockedMsg(def) : '請先選擇練習單元';
+      $('#dbFile').value = '';
+      return;
+    }
+    S.sid = id.sid; S.nick = id.nick; S.lastPack = $('#packSel').value; save();
     $('#intro').hidden = true; $('#loading').hidden = false; $('#loading').textContent = '開啟資料庫中…';
     try {
       await ensureSql();
@@ -240,7 +272,7 @@
       [/no such table/i, '資料表名稱打錯了嗎？看右邊「資料表」，也可以直接點表名插入。'],
       [/no such column/i, '欄位名稱打錯，或 JOIN 時忘了加表別名（例如 o.amount）。'],
       [/ambiguous column/i, '兩張表都有這個欄位，請在前面加表別名。'],
-      [/misuse of aggregate/i, '統計函數（COUNT、SUM…）不能放在 WHERE 裡；要篩選統計結果，下週會教 HAVING。'],
+      [/misuse of aggregate/i, '統計函數（COUNT、SUM…）不能放在 WHERE 裡；要篩選統計結果，請先 GROUP BY 分組，再用 HAVING。'],
       [/syntax error/i, '語法錯誤：檢查逗號、引號、括號是否成對，以及關鍵字順序。'],
       [/incomplete input/i, 'SQL 好像沒寫完，檢查括號或引號有沒有成對。']
     ];

@@ -6,7 +6,17 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const params = new URLSearchParams(location.search);
   const ROOM = params.get('room') || CFG.ROOM || 'main';
-  const PACK = PACKS.find(p => p.id === params.get('pack')) || PACKS.find(p => String(p.week) === params.get('week')) || PACKS[PACKS.length - 1];
+  // 時間鎖（判斷方式同 app.js）：?preview=1 忽略；window.PRACTICE_NOW 只給測試用
+  const PREVIEW = params.get('preview') === '1';
+  function clock() {
+    const v = window.PRACTICE_NOW;
+    if (v == null) return Date.now();
+    return typeof v === 'string' ? Date.parse(v) : Number(v);
+  }
+  const isOpen = p => PREVIEW || !p.opensAt || clock() >= Date.parse(p.opensAt);
+  // 沒指定 pack／week 時，預設顯示最新一個已開放的單元
+  const openPacks = PACKS.filter(isOpen);
+  const PACK = PACKS.find(p => p.id === params.get('pack')) || PACKS.find(p => String(p.week) === params.get('week')) || openPacks[openPacks.length - 1] || PACKS[0];
   const WEEK = String(params.get('week') || (PACK && PACK.week) || '');
   const POLL = Math.max(2000, Number(params.get('poll')) || 4000);
   let api = params.get('api') || CFG.ENDPOINT || sessionStorage.getItem('board-api') || '';

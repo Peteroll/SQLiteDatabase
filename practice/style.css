@@ -464,6 +464,9 @@ pre.code {
 .db-chip, .score-chip { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 .score-chip b { font-family: var(--mono); color: var(--accent-2); font-size: 15px; }
 .score-chip:empty { display: none; }
+.preview-chip { display: inline-flex; align-items: center; font-size: 12px; font-weight: 700; color: var(--accent-2); background: var(--accent-wash); border: 1px solid rgba(240, 179, 90, .45); border-radius: 99px; padding: 3px 10px; white-space: nowrap; }
+.preview-note { color: var(--accent-2); font-weight: 700; }
+.preview-chip[hidden], .preview-note[hidden] { display: none; }
 .dot { width: 8px; height: 8px; border-radius: 99px; display: inline-block; flex: 0 0 auto; }
 .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(134, 211, 169, .15); }
 .dot.free { background: var(--accent); box-shadow: 0 0 0 3px rgba(240, 179, 90, .15); }

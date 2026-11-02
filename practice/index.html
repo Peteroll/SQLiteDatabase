@@ -9,12 +9,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=b9411bd0">
+  <link rel="stylesheet" href="style.css?v=9bcab136">
   <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
   <script src="config.js"></script>
   <script src="judge.js?v=d81905e4"></script>
-  <script src="packs/index.js?v=5004c7b9"></script>
-  <script src="app.js?v=3171ad85" defer></script>
+  <script src="packs/index.js?v=4b3dfd21"></script>
+  <script src="app.js?v=5d13bcbc" defer></script>
 </head>
 <body>
   <div class="ambient" aria-hidden="true"></div>
@@ -49,6 +49,7 @@
           <p class="feedback err" id="startErr"></p>
         </div>
       </div>
+      <p class="fineprint preview-note" id="previewNote" hidden>預覽模式：未開放的單元也能作答</p>
       <p class="fineprint" id="boardStatus"></p>
       <p class="fineprint">資料庫只在你的瀏覽器裡執行，不會上傳。送到排行榜的只有：學號、暱稱、題號、分數、嘗試次數、提示次數、作答時間與你提交的 SQL。</p>
     </aside>
@@ -64,6 +65,7 @@
       </div>
       <nav class="stepper" id="qNav" aria-label="題目"></nav>
       <div class="island-actions">
+        <span class="preview-chip" id="previewChip" title="預覽模式：未開放的單元也能作答" hidden>預覽模式</span>
         <span class="db-chip" id="dbChip"></span>
         <span class="score-chip" id="scoreChip"></span>
         <button class="pill quiet" id="switchBtn">換單元／資料庫</button>
