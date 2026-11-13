@@ -1,0 +1,1596 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CSV 轉 SQLite 工具｜大數據資料庫應用實務</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='6' width='24' height='20' rx='5' fill='%23d07a1c'/%3E%3Cpath d='M9 13h14M9 18h9' stroke='%23ffffff' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
+  <style>
+    :root {
+      --bg: #faf6ef;
+      --surface: #ffffff;
+      --surface-2: #fffdf9;
+      --surface-3: #f4ede2;
+      --hair: rgba(90, 60, 25, .10);
+      --hair-2: rgba(90, 60, 25, .18);
+      --ink: #2a2118;
+      --ink-2: #4a3d2f;
+      --muted: #6f6458;
+      --faint: #998d7f;
+      --accent: #d07a1c;
+      --accent-2: #a95d0b;
+      --accent-ink: #ffffff;
+      --accent-wash: rgba(208, 122, 28, .09);
+      --red: #c93a52;
+      --red-wash: rgba(201, 58, 82, .08);
+      --ok: #23905c;
+      --ok-wash: rgba(35, 144, 92, .09);
+      --code: #f7f2ea;
+      --code-ink: #3b2a17;
+      --r-shell: 22px;
+      --r-core: 16px;
+      --ease: cubic-bezier(.32, .72, 0, 1);
+      --ease-out: cubic-bezier(.16, 1, .3, 1);
+      --sans: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+      --serif: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+      --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: var(--sans);
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    body, code, pre, input, select {
+      font-variant-ligatures: none;
+      font-feature-settings: "liga" 0, "calt" 0;
+    }
+    button, input, select { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    [hidden] { display: none !important; }
+    ::selection { background: rgba(208, 122, 28, .22); color: var(--ink); }
+
+    .ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+    .ambient::before {
+      content: ""; position: absolute; inset: 0;
+      background:
+        radial-gradient(900px 520px at 8% -10%, rgba(240, 170, 80, .16), transparent 60%),
+        radial-gradient(700px 480px at 100% 0%, rgba(120, 190, 160, .12), transparent 60%);
+    }
+    .ambient::after {
+      content: ""; position: absolute; inset: 0; opacity: .025;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    .page {
+      position: relative;
+      z-index: 1;
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 36px 24px 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .shell {
+      padding: 5px;
+      border-radius: var(--r-shell);
+      background: rgba(120, 80, 30, .035);
+      border: 1px solid var(--hair);
+      box-shadow: 0 12px 30px -22px rgba(80, 50, 20, .35);
+    }
+    .core {
+      border-radius: var(--r-core);
+      background: linear-gradient(180deg, var(--surface-2), var(--surface));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
+    }
+    .pad { padding: 22px 24px; }
+
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 11.5px; letter-spacing: .16em; color: var(--accent);
+      padding: 4px 12px; border-radius: 999px;
+      background: var(--accent-wash); border: 1px solid rgba(208, 122, 28, .22);
+      font-weight: 700;
+    }
+    .display {
+      font-family: var(--serif); font-weight: 900;
+      font-size: clamp(28px, 3.6vw, 42px); line-height: 1.2;
+      margin: 12px 0 8px; color: var(--ink);
+    }
+    .lead {
+      font-size: 16px; color: var(--ink-2); margin: 0 0 14px;
+    }
+    .privacy-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--ok); font-weight: 600;
+      background: var(--ok-wash); border: 1px solid rgba(35, 144, 92, .25);
+      padding: 5px 13px; border-radius: 999px;
+    }
+    .privacy-dot {
+      width: 8px; height: 8px; border-radius: 99px;
+      background: var(--ok); box-shadow: 0 0 0 3px rgba(35, 144, 92, .15);
+    }
+
+    /* 3 步驟說明 */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px solid var(--hair);
+    }
+    .step-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 14px; border-radius: 14px;
+      background: rgba(90, 60, 25, .025);
+      border: 1px solid var(--hair);
+    }
+    .step-num {
+      width: 28px; height: 28px; border-radius: 999px; flex: 0 0 auto;
+      display: grid; place-items: center;
+      background: var(--accent); color: var(--accent-ink);
+      font-family: var(--mono); font-weight: 700; font-size: 13px;
+      margin-top: 2px;
+    }
+    .step-text b { display: block; font-size: 14.5px; color: var(--ink); margin-bottom: 2px; }
+    .step-text span { font-size: 13px; color: var(--muted); line-height: 1.55; display: block; }
+
+    /* 按鈕與控制元件 */
+    .cta {
+      display: inline-flex; align-items: center; gap: 12px;
+      padding: 8px 10px 8px 22px; border-radius: 999px; border: 0;
+      background: var(--accent); color: var(--accent-ink);
+      font-weight: 700; letter-spacing: .02em; font-size: 15px;
+      transition: transform .4s var(--ease), background .3s var(--ease), box-shadow .4s var(--ease);
+      box-shadow: 0 10px 24px -12px rgba(208, 122, 28, .55);
+      white-space: nowrap;
+    }
+    .cta:hover:not(:disabled) { background: var(--accent-2); }
+    .cta:active:not(:disabled) { transform: scale(.98); }
+    .cta:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+    .cta-icon {
+      width: 30px; height: 30px; border-radius: 999px;
+      display: grid; place-items: center;
+      background: rgba(255, 255, 255, .22);
+    }
+    .cta-icon svg {
+      width: 16px; height: 16px; fill: none; stroke: currentColor;
+      stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      border-radius: 999px; border: 1px solid var(--hair-2);
+      background: #fff; padding: 7px 16px; font-size: 13.5px;
+      font-weight: 500; color: var(--ink-2);
+      transition: background .3s var(--ease), border-color .3s var(--ease), transform .3s var(--ease);
+      white-space: nowrap;
+    }
+    .pill:hover:not(:disabled) { background: var(--accent-wash); border-color: rgba(208, 122, 28, .4); }
+    .pill:active:not(:disabled) { transform: scale(.98); }
+    .pill:disabled { opacity: .45; cursor: not-allowed; }
+    .pill.danger { color: var(--red); border-color: rgba(201, 58, 82, .25); }
+    .pill.danger:hover:not(:disabled) { background: var(--red-wash); border-color: rgba(201, 58, 82, .5); }
+
+    .mini {
+      border: 1px solid var(--hair-2); background: #fff; border-radius: 999px;
+      padding: 3px 11px; font-size: 12px; color: var(--ink-2); font-weight: 500;
+      transition: background .3s var(--ease), border-color .3s var(--ease), color .3s var(--ease);
+    }
+    .mini:hover { background: var(--accent-wash); border-color: rgba(208, 122, 28, .4); color: var(--accent-2); }
+
+    input[type="text"], select {
+      background: var(--code); border: 1px solid var(--hair-2); border-radius: 10px;
+      padding: 7px 11px; outline: none; color: var(--ink);
+      transition: border-color .25s var(--ease), box-shadow .25s var(--ease);
+    }
+    input[type="text"]:focus, select:focus {
+      border-color: rgba(208, 122, 28, .65);
+      box-shadow: 0 0 0 3px rgba(208, 122, 28, .12);
+      background: #fff;
+    }
+    input[type="text"].invalid {
+      border-color: var(--red);
+      background: var(--red-wash);
+    }
+
+    /* 拖放選檔區 & 全域設定列 */
+    .dropzone {
+      border: 2px dashed rgba(208, 122, 28, .38);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(208, 122, 28, .05), rgba(208, 122, 28, .015));
+      padding: 28px 20px;
+      text-align: center;
+      transition: border-color .3s var(--ease), background .3s var(--ease), transform .3s var(--ease);
+      cursor: pointer;
+    }
+    .dropzone.dragover {
+      border-color: var(--accent);
+      background: rgba(208, 122, 28, .12);
+      transform: scale(1.005);
+    }
+    .dropzone-title {
+      font-size: 17px; font-weight: 700; color: var(--ink); margin: 0 0 6px;
+    }
+    .dropzone-sub {
+      font-size: 13.5px; color: var(--muted); margin: 0 0 14px;
+    }
+
+    .controls-bar {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 14px 20px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--hair);
+    }
+    .check-label {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 14px; color: var(--ink-2); cursor: pointer; user-select: none;
+    }
+    .check-label input[type="checkbox"] {
+      width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer;
+    }
+    .check-hint {
+      font-size: 12.5px; color: var(--muted); display: block; margin-top: 2px;
+    }
+
+    .export-group {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    }
+    .export-group label {
+      font-size: 13.5px; color: var(--muted); font-weight: 500;
+    }
+    .db-name-input {
+      font-family: var(--mono); font-size: 14px; width: 190px;
+    }
+
+    /* 訊息橫幅與進度條 */
+    .alert-box {
+      padding: 12px 16px; border-radius: 12px; font-size: 14px; line-height: 1.6;
+      margin-bottom: 4px;
+    }
+    .alert-box.err {
+      background: var(--red-wash); color: var(--red);
+      border: 1px solid rgba(201, 58, 82, .28);
+    }
+    .alert-box.tip {
+      background: var(--accent-wash); color: var(--ink-2);
+      border: 1px solid rgba(208, 122, 28, .25);
+    }
+    .alert-box.okay {
+      background: var(--ok-wash); color: var(--ok);
+      border: 1px solid rgba(35, 144, 92, .28);
+    }
+
+    .progress-wrap {
+      padding: 16px 20px; border-radius: 14px;
+      background: var(--surface); border: 1px solid var(--hair-2);
+    }
+    .progress-head {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 13.5px; color: var(--ink-2); margin-bottom: 8px; font-weight: 600;
+    }
+    .progress-bar-track {
+      height: 10px; border-radius: 999px; background: var(--surface-3); overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%; width: 0%; background: var(--accent); border-radius: 999px;
+      transition: width .15s linear;
+    }
+
+    /* 檔案預覽卡片 */
+    .files-list {
+      display: flex; flex-direction: column; gap: 18px;
+    }
+    .file-head {
+      display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+      gap: 12px 16px; padding: 16px 20px; border-bottom: 1px solid var(--hair);
+    }
+    .file-meta-group {
+      display: flex; flex-direction: column; gap: 6px; min-width: 260px; flex: 1;
+    }
+    .file-title-row {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    }
+    .file-orig-name {
+      font-family: var(--mono); font-weight: 600; font-size: 14px; color: var(--ink);
+      background: var(--surface-3); padding: 2px 10px; border-radius: 8px;
+    }
+    .chip {
+      font-size: 12px; font-family: var(--mono); padding: 2px 9px;
+      border-radius: 999px; border: 1px solid var(--hair-2);
+      background: #fff; color: var(--muted);
+    }
+    .chip.warn {
+      color: var(--accent-2); background: var(--accent-wash);
+      border-color: rgba(208, 122, 28, .35); font-family: var(--sans); font-weight: 600;
+    }
+    .chip.err {
+      color: var(--red); background: var(--red-wash);
+      border-color: rgba(201, 58, 82, .35); font-family: var(--sans); font-weight: 600;
+    }
+
+    .table-name-row {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px;
+    }
+    .table-name-row label {
+      font-size: 13px; color: var(--muted); font-weight: 600;
+    }
+    .table-name-input {
+      font-family: var(--mono); font-size: 14px; font-weight: 600; width: 240px;
+    }
+    .field-err-msg {
+      font-size: 12.5px; color: var(--red); font-weight: 600;
+    }
+
+    .file-actions {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    }
+    .enc-label {
+      display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted);
+    }
+
+    /* 預覽資料表 */
+    .preview-scroll {
+      overflow-x: auto; max-height: 440px;
+      scrollbar-width: thin; scrollbar-color: rgba(90, 60, 25, .22) transparent;
+    }
+    table.grid {
+      border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px;
+    }
+    table.grid th, table.grid td {
+      padding: 8px 12px; text-align: left; vertical-align: top;
+      border-bottom: 1px solid var(--hair); border-right: 1px solid var(--hair);
+    }
+    table.grid th:last-child, table.grid td:last-child { border-right: 0; }
+    table.grid th {
+      position: sticky; top: 0; z-index: 2;
+      background: var(--surface-3); color: var(--ink);
+      font-weight: 600; min-width: 155px;
+    }
+    table.grid th.num-col {
+      min-width: 44px; width: 44px; text-align: center;
+      color: var(--faint); font-family: var(--mono);
+    }
+    table.grid td {
+      color: var(--ink-2); max-width: 280px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    table.grid td.num {
+      font-family: var(--mono); color: var(--faint); font-size: 11.5px;
+      text-align: center; background: rgba(90, 60, 25, .02);
+    }
+    table.grid tbody tr:hover td { background: rgba(208, 122, 28, .05); }
+    .null { color: var(--faint); font-style: italic; font-family: var(--mono); font-size: 12px; }
+
+    .th-editor {
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .th-col-input {
+      width: 100%; font-family: var(--mono); font-size: 12.5px; font-weight: 600;
+      padding: 4px 8px; border-radius: 7px; background: #fff;
+    }
+    .th-type-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    }
+    .th-type-select {
+      width: 100%; font-family: var(--mono); font-size: 11.5px;
+      padding: 3px 6px; border-radius: 6px; background: #fff; color: var(--accent-2); font-weight: 600;
+    }
+    .th-err {
+      font-size: 11px; color: var(--red); font-weight: 600; white-space: normal; line-height: 1.3;
+    }
+
+    .preview-foot {
+      padding: 10px 18px; font-size: 12.5px; color: var(--muted);
+      background: rgba(90, 60, 25, .02); border-top: 1px solid var(--hair);
+      display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px;
+    }
+
+    /* 完成摘要區 */
+    .summary-card {
+      border-top: 1px solid var(--hair); margin-top: 14px; padding-top: 14px;
+    }
+    .summary-card:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+    .summary-table-head {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px;
+    }
+    .summary-tname {
+      font-family: var(--mono); font-size: 16px; font-weight: 700; color: var(--accent-2);
+    }
+    .col-chips {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+    }
+    .colchip {
+      font-family: var(--mono); font-size: 12px; padding: 2px 9px; border-radius: 8px;
+      background: #fff; border: 1px solid var(--hair-2); color: var(--ink-2);
+    }
+    .colchip small {
+      color: var(--accent); margin-left: 5px; font-weight: 600;
+    }
+    .sql-box {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 8px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--hair);
+    }
+    .sql-box code {
+      font-family: var(--mono); font-size: 13px; color: var(--code-ink);
+      overflow-x: auto; white-space: nowrap;
+    }
+
+    .toast {
+      position: fixed; left: 50%; bottom: 24px; z-index: 40;
+      transform: translate(-50%, 24px); opacity: 0; pointer-events: none;
+      padding: 10px 18px; border-radius: 999px;
+      background: rgba(255, 255, 255, .96); border: 1px solid var(--hair-2);
+      font-size: 14px; color: var(--ink); font-weight: 500;
+      transition: transform .5s var(--ease), opacity .4s var(--ease);
+      box-shadow: 0 20px 40px -20px rgba(80, 50, 20, .45);
+    }
+    .toast.show { transform: translate(-50%, 0); opacity: 1; }
+
+    @media (max-width: 860px) {
+      .steps-grid { grid-template-columns: 1fr; }
+      .page { padding: 20px 12px 48px; }
+      .controls-bar { flex-direction: column; align-items: stretch; }
+      .export-group { justify-content: space-between; }
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient" aria-hidden="true"></div>
+
+  <main class="page">
+    <!-- 頂部說明與 3 步驟 -->
+    <section class="shell">
+      <div class="core pad">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px;">
+          <span class="eyebrow">大數據資料庫應用實務・課堂工具</span>
+          <span class="privacy-badge"><i class="privacy-dot"></i>檔案只在你的瀏覽器裡處理，不會上傳</span>
+        </div>
+        <h1 class="display">CSV 轉 SQLite 資料庫工具</h1>
+        <p class="lead">把公開資料或專題的 <code>.csv</code> 檔案轉成標準 <code>.db</code> 資料庫檔，方便在課堂練習頁或 VS Code 中撰寫 SQL 查詢。</p>
+
+        <div class="steps-grid" aria-label="使用步驟">
+          <div class="step-item">
+            <span class="step-num">1</span>
+            <div class="step-text">
+              <b>選取或拖放 CSV 檔</b>
+              <span>可一次選取或分次追加多個 <code>.csv</code> 檔，每個檔案會轉成同一個資料庫裡的一張資料表。</span>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-num">2</span>
+            <div class="step-text">
+              <b>檢查預覽與欄位型別</b>
+              <span>確認中文編碼（UTF-8 / Big5）無亂碼，可直接在表頭修改資料表名、欄位名稱與資料型別。</span>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-num">3</span>
+            <div class="step-text">
+              <b>下載 .db 並開啟查詢</b>
+              <span>按「轉換並下載」取得 <code>.db</code> 檔，再用 VS Code 的 SQLite 套件或課程練習頁開啟。</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 全域錯誤訊息（如 sql.js 載入失敗） -->
+    <div id="globalError" class="alert-box err" hidden></div>
+
+    <!-- 選檔區與轉換設定 -->
+    <section class="shell">
+      <div class="core pad">
+        <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="拖放或點選 CSV 檔案">
+          <p class="dropzone-title">將一個或多個 .csv 檔案拖放到這裡</p>
+          <p class="dropzone-sub">支援 UTF-8（含 BOM）與 Big5 編碼，自動偵測逗號或 Tab 分隔符號</p>
+          <button type="button" class="pill" id="pickFilesBtn">選擇 CSV 檔案…</button>
+          <input type="file" id="fileInput" accept=".csv,text/csv,text/tab-separated-values" multiple hidden>
+        </div>
+
+        <div class="controls-bar">
+          <div>
+            <label class="check-label">
+              <input type="checkbox" id="safeNameToggle" checked>
+              <span>把欄名改成安全名稱（推薦：寫 SQL 時不用加雙引號）</span>
+            </label>
+            <span class="check-hint">將中英文、數字、底線以外的字元換成底線，若開頭為數字則在前面加底線</span>
+          </div>
+
+          <div class="export-group">
+            <label for="dbFilename">輸出檔名</label>
+            <input type="text" id="dbFilename" class="db-name-input" value="my_data.db" placeholder="my_data.db">
+            <button type="button" class="cta" id="convertBtn" disabled>
+              轉換並下載
+              <span class="cta-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 4v12m0 0l-5-5m5 5l5-5M5 20h14"/></svg>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 進度顯示區 -->
+    <div id="progressSection" class="progress-wrap" hidden>
+      <div class="progress-head">
+        <span id="progressText">處理中…</span>
+        <span id="progressPercent" style="font-family:var(--mono);">0%</span>
+      </div>
+      <div class="progress-bar-track">
+        <div id="progressBar" class="progress-bar-fill"></div>
+      </div>
+    </div>
+
+    <!-- 轉換完成摘要區 -->
+    <section id="summarySection" class="shell" hidden>
+      <div class="core pad">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;">
+          <div>
+            <span class="eyebrow" style="color:var(--ok); background:var(--ok-wash); border-color:rgba(35,144,92,.25);">轉換成功</span>
+            <h2 style="font-family:var(--serif); font-size:22px; margin:8px 0 0;" id="summaryTitle">資料庫已下載</h2>
+          </div>
+        </div>
+        <div id="summaryBody"></div>
+      </div>
+    </section>
+
+    <!-- 檔案預覽清單 -->
+    <div id="filesContainer" class="files-list"></div>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    /* =========================================================
+     * 狀態與全域變數
+     * ========================================================= */
+    let SQLlib = null;
+    let sqlLoadError = null;
+    let fileItems = []; // 存放每個 CSV 檔案的狀態物件
+    let nextFileId = 1;
+    let isBusy = false;
+
+    const $ = s => document.querySelector(s);
+
+    let toastTimer = null;
+    function showToast(msg) {
+      const t = $('#toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+    }
+
+    function yieldToMain() {
+      return new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    function setProgress(visible, text, percent) {
+      const sec = $('#progressSection');
+      if (!visible) {
+        sec.hidden = true;
+        return;
+      }
+      sec.hidden = false;
+      $('#progressText').textContent = text || '處理中…';
+      const p = Math.max(0, Math.min(100, Math.round(percent || 0)));
+      $('#progressPercent').textContent = p + '%';
+      $('#progressBar').style.width = p + '%';
+    }
+
+    function showGlobalError(msg) {
+      const el = $('#globalError');
+      if (!msg) {
+        el.hidden = true;
+        el.textContent = '';
+      } else {
+        el.hidden = false;
+        el.textContent = msg;
+      }
+    }
+
+    /* =========================================================
+     * 1. sql.js 引擎初始化
+     * ========================================================= */
+    async function ensureSqlJs() {
+      if (SQLlib) return SQLlib;
+      if (sqlLoadError) throw sqlLoadError;
+      if (typeof initSqlJs === 'undefined') {
+        sqlLoadError = new Error('SQL 引擎（sql.js）載入失敗，請確認網路連線後重新整理頁面。');
+        throw sqlLoadError;
+      }
+      try {
+        SQLlib = await initSqlJs({
+          locateFile: f => 'https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/' + f
+        });
+        return SQLlib;
+      } catch (err) {
+        sqlLoadError = new Error('SQL 引擎（sql.js）初始化失敗，請確認網路連線後重新整理頁面。');
+        throw sqlLoadError;
+      }
+    }
+
+    /* =========================================================
+     * 2. 解碼模組（UTF-8 含 BOM 自動判斷 / Big5 備援）
+     * ========================================================= */
+    function decodeBuffer(uint8, forcedEncoding) {
+      let encoding = forcedEncoding;
+      let text = '';
+
+      if (!encoding) {
+        try {
+          const decUtf8 = new TextDecoder('utf-8', { fatal: true });
+          text = decUtf8.decode(uint8);
+          encoding = 'utf-8';
+        } catch (e) {
+          const decBig5 = new TextDecoder('big5');
+          text = decBig5.decode(uint8);
+          encoding = 'big5';
+        }
+      } else {
+        const dec = new TextDecoder(encoding);
+        text = dec.decode(uint8);
+      }
+
+      // 若開頭有 UTF-8 BOM (\uFEFF)，予以移除
+      if (text.charCodeAt(0) === 0xFEFF) {
+        text = text.slice(1);
+      }
+      return { text, encoding };
+    }
+
+    /* =========================================================
+     * 3. RFC 4180 CSV 解析模組（自動判斷逗號/Tab，支援分批非同步解析）
+     * ========================================================= */
+    function detectDelimiter(text) {
+      let inQuotes = false;
+      let commaCount = 0;
+      let tabCount = 0;
+      const len = Math.min(text.length, 32768);
+
+      for (let i = 0; i < len; i++) {
+        const ch = text[i];
+        if (ch === '"') {
+          if (inQuotes && text[i + 1] === '"') {
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (!inQuotes) {
+          if (ch === ',') commaCount++;
+          else if (ch === '\t') tabCount++;
+          else if (ch === '\n' || ch === '\r') break;
+        }
+      }
+      return tabCount > commaCount ? '\t' : ',';
+    }
+
+    async function parseCsvRFC4180(text, onProgress) {
+      const delimiter = detectDelimiter(text);
+      const rows = [];
+      let currentRow = [];
+      let currentField = '';
+      let inQuotes = false;
+      let fieldStartedWithQuote = false;
+      const len = text.length;
+
+      // 每處理約 25 萬字元讓出主執行緒一次，避免 20MB 大檔卡住畫面
+      const CHUNK_CHARS = 250000;
+      let nextYield = CHUNK_CHARS;
+
+      for (let i = 0; i < len; i++) {
+        if (i >= nextYield) {
+          if (onProgress) onProgress(i / len);
+          await yieldToMain();
+          nextYield = i + CHUNK_CHARS;
+        }
+
+        const ch = text[i];
+
+        if (inQuotes) {
+          if (ch === '"') {
+            if (text[i + 1] === '"') {
+              currentField += '"';
+              i++; // 跳過第二個雙引號
+            } else {
+              inQuotes = false;
+            }
+          } else {
+            currentField += ch;
+          }
+        } else {
+          if (ch === '"' && currentField === '' && !fieldStartedWithQuote) {
+            inQuotes = true;
+            fieldStartedWithQuote = true;
+          } else if (ch === delimiter) {
+            currentRow.push(currentField);
+            currentField = '';
+            fieldStartedWithQuote = false;
+          } else if (ch === '\r' || ch === '\n') {
+            if (ch === '\r' && text[i + 1] === '\n') {
+              i++; // CRLF 視為單一換行
+            }
+            currentRow.push(currentField);
+            rows.push(currentRow);
+            currentRow = [];
+            currentField = '';
+            fieldStartedWithQuote = false;
+          } else {
+            currentField += ch;
+          }
+        }
+      }
+
+      // 處理結尾最後一列
+      if (currentField !== '' || fieldStartedWithQuote || currentRow.length > 0) {
+        currentRow.push(currentField);
+        rows.push(currentRow);
+      }
+
+      // 移除檔尾的空行（例如最後多一個或多個換行符號造成的空列）
+      while (
+        rows.length > 0 &&
+        rows[rows.length - 1].length === 1 &&
+        rows[rows.length - 1][0] === ''
+      ) {
+        rows.pop();
+      }
+
+      return { rows, delimiter };
+    }
+
+    /* =========================================================
+     * 4. 命名規則模組（資料表名稱、欄位名稱、安全名稱、去重）
+     * ========================================================= */
+    function toSafeIdentifier(raw, fallback) {
+      let s = String(raw == null ? '' : raw).trim();
+      // 將中英文、數字、底線以外的字元替換為底線
+      s = s.replace(/[^a-zA-Z0-9_\u4e00-\u9fff]/g, '_');
+      if (!s || /^_+$/.test(s)) {
+        s = fallback;
+      }
+      // 開頭是數字時，在前面加底線
+      if (/^[0-9]/.test(s)) {
+        s = '_' + s;
+      }
+      return s;
+    }
+
+    function deriveTableName(filename, existingNames) {
+      const base = String(filename || '').replace(/\.[^.]+$/, '');
+      const safeBase = toSafeIdentifier(base, '資料表');
+      let candidate = safeBase;
+      let seq = 2;
+      const used = new Set(existingNames || []);
+      while (used.has(candidate)) {
+        candidate = safeBase + '_' + seq;
+        seq++;
+      }
+      return candidate;
+    }
+
+    function computeColumnNames(rawHeaderRow, useSafeName) {
+      const used = new Set();
+      return rawHeaderRow.map((rawCell, idx) => {
+        const fallback = '欄位' + (idx + 1);
+        let name = String(rawCell == null ? '' : rawCell).trim();
+        if (!name) {
+          name = fallback;
+        }
+        if (useSafeName) {
+          name = toSafeIdentifier(name, fallback);
+        }
+        const base = name;
+        let candidate = base;
+        let seq = 2;
+        while (used.has(candidate)) {
+          candidate = base + '_' + seq;
+          seq++;
+        }
+        used.add(candidate);
+        return candidate;
+      });
+    }
+
+    function quoteIdent(ident) {
+      return '"' + String(ident).replace(/"/g, '""') + '"';
+    }
+
+    /* =========================================================
+     * 5. 型別判斷與正規化模組（INTEGER / REAL / TEXT，保留前導 0）
+     * ========================================================= */
+    const RE_LEADING_ZERO = /^-?0\d+/;
+    const RE_INTEGER = /^-?(?:0|[1-9]\d*)$/;
+    const RE_REAL = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+    function classifyCellType(val) {
+      if (val === '' || val == null) return 'EMPTY';
+      const s = String(val);
+      // 有前導 0 的值（例如 04、0912345678、-04）一律視為 TEXT
+      if (RE_LEADING_ZERO.test(s)) return 'TEXT';
+      if (RE_INTEGER.test(s)) {
+        // 避免超過安全整數範圍造成精度流失
+        const n = Number(s);
+        if (Number.isSafeInteger(n)) return 'INTEGER';
+        return 'TEXT';
+      }
+      if (RE_REAL.test(s)) {
+        const n = Number(s);
+        if (Number.isFinite(n)) return 'REAL';
+      }
+      return 'TEXT';
+    }
+
+    async function analyzeDataRows(dataRows, colCount, onProgress) {
+      const colTypes = new Array(colCount).fill('EMPTY');
+      let adjustedRowCount = 0;
+      const totalRows = dataRows.length;
+      const BATCH_SIZE = 4000;
+
+      for (let r = 0; r < totalRows; r++) {
+        if (r > 0 && r % BATCH_SIZE === 0) {
+          if (onProgress) onProgress(r / totalRows);
+          await yieldToMain();
+        }
+
+        const row = dataRows[r];
+        if (row.length !== colCount) {
+          adjustedRowCount++;
+        }
+
+        const limit = Math.min(row.length, colCount);
+        for (let c = 0; c < limit; c++) {
+          const cur = colTypes[c];
+          if (cur === 'TEXT') continue; // 已經是 TEXT 就不用再檢查該欄
+          const cellVal = row[c];
+          if (cellVal === '' || cellVal == null) continue;
+
+          const cellType = classifyCellType(cellVal);
+          if (cellType === 'TEXT') {
+            colTypes[c] = 'TEXT';
+          } else if (cellType === 'REAL') {
+            colTypes[c] = 'REAL';
+          } else if (cellType === 'INTEGER') {
+            if (cur === 'EMPTY') colTypes[c] = 'INTEGER';
+          }
+        }
+      }
+
+      const finalTypes = colTypes.map(t => (t === 'EMPTY' ? 'TEXT' : t));
+      return { inferredTypes: finalTypes, adjustedRowCount };
+    }
+
+    /* =========================================================
+     * 6. 檔案讀取與完整解析流程
+     * ========================================================= */
+    function isLikelyCsvFile(file) {
+      const name = String(file.name || '').toLowerCase();
+      return name.endsWith('.csv');
+    }
+
+    function containsBinaryNullBytes(uint8) {
+      const checkLen = Math.min(uint8.length, 8192);
+      for (let i = 0; i < checkLen; i++) {
+        if (uint8[i] === 0) return true;
+      }
+      return false;
+    }
+
+    async function processSingleFileItem(item, forcedEncoding) {
+      item.error = null;
+      item.adjustedRowCount = 0;
+
+      if (item.uint8.length === 0) {
+        item.error = '這個檔案是空的（0 Byte），請確認檔案內容。';
+        return;
+      }
+
+      if (containsBinaryNullBytes(item.uint8)) {
+        item.error = '這個檔案包含二進位空字元，不是有效的 CSV 純文字檔。';
+        return;
+      }
+
+      const { text, encoding } = decodeBuffer(item.uint8, forcedEncoding);
+      item.encoding = encoding;
+
+      if (!text.trim()) {
+        item.error = '這個檔案只有空白或空行，沒有任何資料。';
+        return;
+      }
+
+      setProgress(true, `正在解析「${item.fileName}」的 CSV 結構…`, 15);
+      await yieldToMain();
+
+      const { rows, delimiter } = await parseCsvRFC4180(text, ratio => {
+        setProgress(true, `正在解析「${item.fileName}」的 CSV 結構…`, 15 + ratio * 45);
+      });
+
+      item.delimiter = delimiter;
+
+      if (rows.length === 0) {
+        item.error = '這個檔案是空的，找不到任何表頭或資料列。';
+        return;
+      }
+
+      const rawHeader = rows[0];
+      if (rawHeader.length === 0 || (rawHeader.length === 1 && rawHeader[0].trim() === '')) {
+        item.error = '第一列（表頭）是空的，無法建立欄位名稱。';
+        return;
+      }
+
+      const dataRows = rows.slice(1);
+      if (dataRows.length === 0) {
+        item.error = '這個檔案只有第一列表頭、沒有任何資料列，無法匯入。';
+        return;
+      }
+
+      item.rawHeader = rawHeader;
+      item.dataRows = dataRows;
+      item.colCount = rawHeader.length;
+      item.rowCount = dataRows.length;
+      item.previewRows = dataRows.slice(0, 10);
+
+      const useSafe = $('#safeNameToggle').checked;
+      item.columns = computeColumnNames(rawHeader, useSafe);
+
+      setProgress(true, `正在判斷「${item.fileName}」的欄位型別（共 ${dataRows.length.toLocaleString()} 列）…`, 65);
+      await yieldToMain();
+
+      const { inferredTypes, adjustedRowCount } = await analyzeDataRows(
+        dataRows,
+        item.colCount,
+        ratio => {
+          setProgress(
+            true,
+            `正在判斷「${item.fileName}」的欄位型別（共 ${dataRows.length.toLocaleString()} 列）…`,
+            65 + ratio * 35
+          );
+        }
+      );
+
+      item.inferredTypes = inferredTypes;
+      item.types = inferredTypes.slice();
+      item.adjustedRowCount = adjustedRowCount;
+    }
+
+    async function handleFilesSelected(fileList) {
+      if (isBusy || !fileList || fileList.length === 0) return;
+      isBusy = true;
+      showGlobalError('');
+      $('#summarySection').hidden = true;
+
+      try {
+        const files = Array.from(fileList);
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          const existingTables = fileItems.map(x => x.tableName);
+          const item = {
+            id: nextFileId++,
+            fileName: f.name,
+            fileSize: f.size,
+            tableName: deriveTableName(f.name, existingTables),
+            encoding: 'utf-8',
+            delimiter: ',',
+            uint8: null,
+            rawHeader: [],
+            columns: [],
+            inferredTypes: [],
+            types: [],
+            dataRows: [],
+            previewRows: [],
+            rowCount: 0,
+            colCount: 0,
+            adjustedRowCount: 0,
+            error: null
+          };
+
+          if (!isLikelyCsvFile(f)) {
+            item.error = '檔案副檔名不是 .csv，請選取正確的 CSV 檔案。';
+            fileItems.push(item);
+            continue;
+          }
+
+          setProgress(true, `正在讀取檔案「${f.name}」…`, 5);
+          await yieldToMain();
+
+          const buf = await f.arrayBuffer();
+          item.uint8 = new Uint8Array(buf);
+          await processSingleFileItem(item, null);
+          fileItems.push(item);
+        }
+      } catch (err) {
+        showGlobalError('讀取或解析檔案時發生錯誤：' + String(err.message || err));
+      } finally {
+        setProgress(false);
+        isBusy = false;
+        renderFiles();
+        updateValidationState();
+      }
+    }
+
+    async function reparseItemWithEncoding(itemId, newEncoding) {
+      if (isBusy) return;
+      const item = fileItems.find(x => x.id === itemId);
+      if (!item || !item.uint8) return;
+
+      isBusy = true;
+      showGlobalError('');
+      $('#summarySection').hidden = true;
+
+      try {
+        await processSingleFileItem(item, newEncoding);
+        showToast(`已用 ${newEncoding.toUpperCase()} 重新解析「${item.fileName}」`);
+      } catch (err) {
+        item.error = '重新解析失敗：' + String(err.message || err);
+      } finally {
+        setProgress(false);
+        isBusy = false;
+        renderFiles();
+        updateValidationState();
+      }
+    }
+
+    /* =========================================================
+     * 7. 驗證資料表名稱與欄位名稱（空值、重複檢查）
+     * ========================================================= */
+    function validateAllItems() {
+      const validItems = fileItems.filter(x => !x.error);
+      if (validItems.length === 0) {
+        return { ok: false, tableErrors: new Map(), colErrors: new Map() };
+      }
+
+      const tableCounts = new Map();
+      for (const item of validItems) {
+        const t = item.tableName.trim();
+        if (t) tableCounts.set(t, (tableCounts.get(t) || 0) + 1);
+      }
+
+      const tableErrors = new Map();
+      const colErrors = new Map();
+      let allOk = true;
+
+      for (const item of validItems) {
+        const t = item.tableName.trim();
+        if (!t) {
+          tableErrors.set(item.id, '資料表名稱不可空白');
+          allOk = false;
+        } else if (tableCounts.get(t) > 1) {
+          tableErrors.set(item.id, `資料表名稱「${t}」與其他檔案重複`);
+          allOk = false;
+        }
+
+        const cCounts = new Map();
+        item.columns.forEach(c => {
+          const trimmed = c.trim();
+          if (trimmed) cCounts.set(trimmed, (cCounts.get(trimmed) || 0) + 1);
+        });
+
+        const itemColErrs = new Array(item.columns.length).fill('');
+        item.columns.forEach((c, idx) => {
+          const trimmed = c.trim();
+          if (!trimmed) {
+            itemColErrs[idx] = '欄名不可空白';
+            allOk = false;
+          } else if (cCounts.get(trimmed) > 1) {
+            itemColErrs[idx] = '欄名重複';
+            allOk = false;
+          }
+        });
+        colErrors.set(item.id, itemColErrs);
+      }
+
+      return { ok: allOk, tableErrors, colErrors };
+    }
+
+    function updateValidationState() {
+      const { ok, tableErrors, colErrors } = validateAllItems();
+      const hasErrorItems = fileItems.some(x => !!x.error);
+
+      for (const item of fileItems) {
+        const card = document.querySelector(`[data-item-id="${item.id}"]`);
+        if (!card) continue;
+
+        const tInput = card.querySelector('.js-table-input');
+        const tErrEl = card.querySelector('.js-table-err');
+        if (tInput && tErrEl) {
+          const errMsg = tableErrors.get(item.id) || '';
+          tInput.classList.toggle('invalid', !!errMsg);
+          tErrEl.textContent = errMsg;
+        }
+
+        const cErrs = colErrors.get(item.id) || [];
+        const cInputs = card.querySelectorAll('.js-col-input');
+        const cErrEls = card.querySelectorAll('.js-col-err');
+        cInputs.forEach((inp, idx) => {
+          const msg = cErrs[idx] || '';
+          inp.classList.toggle('invalid', !!msg);
+          if (cErrEls[idx]) cErrEls[idx].textContent = msg;
+        });
+      }
+
+      $('#convertBtn').disabled = isBusy || !ok || hasErrorItems || fileItems.length === 0;
+    }
+
+    /* =========================================================
+     * 8. 畫面渲染（全部使用 DOM API 與 textContent，杜絕 XSS）
+     * ========================================================= */
+    function createEl(tag, className, text) {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (text !== undefined) el.textContent = text;
+      return el;
+    }
+
+    function renderFiles() {
+      const container = $('#filesContainer');
+      container.replaceChildren();
+
+      fileItems.forEach(item => {
+        const shell = createEl('section', 'shell');
+        shell.dataset.itemId = String(item.id);
+        const core = createEl('div', 'core');
+        shell.appendChild(core);
+
+        // 卡片頂部資訊列
+        const head = createEl('div', 'file-head');
+        const metaGroup = createEl('div', 'file-meta-group');
+
+        const titleRow = createEl('div', 'file-title-row');
+        titleRow.appendChild(createEl('span', 'file-orig-name', item.fileName));
+
+        if (!item.error) {
+          titleRow.appendChild(createEl('span', 'chip', `共 ${item.rowCount.toLocaleString()} 列`));
+          titleRow.appendChild(createEl('span', 'chip', `${item.colCount} 欄`));
+          titleRow.appendChild(
+            createEl(
+              'span',
+              'chip',
+              `編碼：${item.encoding === 'utf-8' ? 'UTF-8' : 'Big5'}（${item.delimiter === '\t' ? 'Tab 分隔' : '逗號分隔'}）`
+            )
+          );
+          if (item.adjustedRowCount > 0) {
+            titleRow.appendChild(
+              createEl('span', 'chip warn', `有 ${item.adjustedRowCount.toLocaleString()} 列欄數與表頭不一致（將自動補 NULL 或截斷）`)
+            );
+          }
+        } else {
+          titleRow.appendChild(createEl('span', 'chip err', '檔案無法匯入'));
+        }
+        metaGroup.appendChild(titleRow);
+
+        // 資料表名稱編輯列
+        if (!item.error) {
+          const tRow = createEl('div', 'table-name-row');
+          const tLabel = createEl('label', '', '資料表名稱：');
+          const tInput = createEl('input', 'table-name-input js-table-input');
+          tInput.type = 'text';
+          tInput.value = item.tableName;
+          tInput.placeholder = '請輸入資料表名稱';
+          const tErr = createEl('span', 'field-err-msg js-table-err', '');
+
+          tInput.addEventListener('input', () => {
+            item.tableName = tInput.value.trim();
+            updateValidationState();
+          });
+
+          tRow.append(tLabel, tInput, tErr);
+          metaGroup.appendChild(tRow);
+        }
+
+        head.appendChild(metaGroup);
+
+        // 右側編碼下拉選單與移除按鈕
+        const actions = createEl('div', 'file-actions');
+        if (item.uint8 && item.uint8.length > 0) {
+          const encLabel = createEl('label', 'enc-label', '檔案編碼：');
+          const encSelect = createEl('select', '');
+          const optUtf8 = createEl('option', '', 'UTF-8');
+          optUtf8.value = 'utf-8';
+          const optBig5 = createEl('option', '', 'Big5（繁體中文）');
+          optBig5.value = 'big5';
+          encSelect.append(optUtf8, optBig5);
+          encSelect.value = item.encoding;
+          encSelect.addEventListener('change', () => {
+            reparseItemWithEncoding(item.id, encSelect.value);
+          });
+          encLabel.appendChild(encSelect);
+          actions.appendChild(encLabel);
+        }
+
+        const removeBtn = createEl('button', 'pill danger', '移除檔案');
+        removeBtn.type = 'button';
+        removeBtn.addEventListener('click', () => {
+          if (isBusy) return;
+          fileItems = fileItems.filter(x => x.id !== item.id);
+          $('#summarySection').hidden = true;
+          renderFiles();
+          updateValidationState();
+        });
+        actions.appendChild(removeBtn);
+        head.appendChild(actions);
+        core.appendChild(head);
+
+        // 若有錯誤，顯示清楚中文錯誤訊息
+        if (item.error) {
+          const errWrap = createEl('div', 'pad');
+          const errAlert = createEl('div', 'alert-box err', item.error);
+          errWrap.appendChild(errAlert);
+          core.appendChild(errWrap);
+          container.appendChild(shell);
+          return;
+        }
+
+        // 預覽表格（前 10 列）
+        const scrollWrap = createEl('div', 'preview-scroll');
+        const table = createEl('table', 'grid');
+        const thead = createEl('thead');
+        const headTr = createEl('tr');
+
+        const thNum = createEl('th', 'num-col', '#');
+        headTr.appendChild(thNum);
+
+        item.columns.forEach((colName, colIdx) => {
+          const th = createEl('th');
+          const editor = createEl('div', 'th-editor');
+
+          const colInput = createEl('input', 'th-col-input js-col-input');
+          colInput.type = 'text';
+          colInput.value = colName;
+          colInput.title = '直接編輯欄位名稱';
+          colInput.addEventListener('input', () => {
+            item.columns[colIdx] = colInput.value.trim();
+            updateValidationState();
+          });
+
+          const typeRow = createEl('div', 'th-type-row');
+          const typeSelect = createEl('select', 'th-type-select');
+          ['INTEGER', 'REAL', 'TEXT'].forEach(tName => {
+            const opt = createEl('option', '', tName);
+            opt.value = tName;
+            typeSelect.appendChild(opt);
+          });
+          typeSelect.value = item.types[colIdx];
+          typeSelect.title = '手動調整欄位資料型別';
+          typeSelect.addEventListener('change', () => {
+            item.types[colIdx] = typeSelect.value;
+          });
+          typeRow.appendChild(typeSelect);
+
+          const colErr = createEl('span', 'th-err js-col-err', '');
+          editor.append(colInput, typeRow, colErr);
+          th.appendChild(editor);
+          headTr.appendChild(th);
+        });
+
+        thead.appendChild(headTr);
+        table.appendChild(thead);
+
+        const tbody = createEl('tbody');
+        item.previewRows.forEach((row, rIdx) => {
+          const tr = createEl('tr');
+          tr.appendChild(createEl('td', 'num', String(rIdx + 1)));
+
+          for (let c = 0; c < item.colCount; c++) {
+            const td = createEl('td');
+            const rawVal = c < row.length ? row[c] : '';
+            if (rawVal === '' || rawVal == null) {
+              td.appendChild(createEl('span', 'null', 'NULL'));
+            } else {
+              td.textContent = String(rawVal);
+              td.title = String(rawVal);
+            }
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        scrollWrap.appendChild(table);
+        core.appendChild(scrollWrap);
+
+        const foot = createEl('div', 'preview-foot');
+        foot.appendChild(
+          createEl(
+            'span',
+            '',
+            `預覽前 ${item.previewRows.length} 列（總共 ${item.rowCount.toLocaleString()} 列資料，空字串將自動存成 NULL）`
+          )
+        );
+        if (item.adjustedRowCount > 0) {
+          foot.appendChild(
+            createEl(
+              'span',
+              '',
+              `注意：共有 ${item.adjustedRowCount.toLocaleString()} 列的欄數與表頭（${item.colCount} 欄）不一致，轉換時太少會補 NULL、太多會截掉。`
+            )
+          );
+        }
+        core.appendChild(foot);
+
+        container.appendChild(shell);
+      });
+    }
+
+    /* =========================================================
+     * 9. 資料庫建立、批次匯入與下載模組
+     * ========================================================= */
+    function convertValueForSqlite(rawVal, targetType) {
+      if (rawVal === '' || rawVal == null) return null;
+      const s = String(rawVal);
+      if (targetType === 'INTEGER') {
+        if (RE_INTEGER.test(s)) {
+          const n = Number(s);
+          if (Number.isSafeInteger(n)) return n;
+        }
+        const parsed = parseInt(s, 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      if (targetType === 'REAL') {
+        const n = Number(s);
+        return Number.isFinite(n) ? n : null;
+      }
+      return s;
+    }
+
+    function triggerDownloadBlob(uint8Array, filename) {
+      const blob = new Blob([uint8Array], { type: 'application/x-sqlite3' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
+
+    function renderConversionSummary(dbName, summaries) {
+      const sec = $('#summarySection');
+      $('#summaryTitle').textContent = `已完成轉換並下載：${dbName}`;
+      const body = $('#summaryBody');
+      body.replaceChildren();
+
+      summaries.forEach(s => {
+        const card = createEl('div', 'summary-card');
+
+        const head = createEl('div', 'summary-table-head');
+        head.appendChild(createEl('span', 'summary-tname', s.tableName));
+        head.appendChild(createEl('span', 'chip', `${s.rowCount.toLocaleString()} 列`));
+        head.appendChild(createEl('span', 'chip', `${s.columns.length} 欄`));
+        if (s.adjustedRowCount > 0) {
+          head.appendChild(
+            createEl('span', 'chip warn', `已自動調整 ${s.adjustedRowCount.toLocaleString()} 列（欄數不足補 NULL／過多截斷）`)
+          );
+        }
+        card.appendChild(head);
+
+        const chipsWrap = createEl('div', 'col-chips');
+        s.columns.forEach((colName, idx) => {
+          const chip = createEl('span', 'colchip', colName);
+          chip.appendChild(createEl('small', '', s.types[idx]));
+          chipsWrap.appendChild(chip);
+        });
+        card.appendChild(chipsWrap);
+
+        const sampleSql = `SELECT * FROM ${quoteIdent(s.tableName)} LIMIT 10;`;
+        const sqlBox = createEl('div', 'sql-box');
+        sqlBox.appendChild(createEl('code', '', sampleSql));
+        const copyBtn = createEl('button', 'mini', '複製範例 SQL');
+        copyBtn.type = 'button';
+        copyBtn.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(sampleSql);
+            showToast('已複製範例 SQL！');
+          } catch (e) {
+            showToast('複製失敗，請手動選取複製');
+          }
+        });
+        sqlBox.appendChild(copyBtn);
+        card.appendChild(sqlBox);
+
+        body.appendChild(card);
+      });
+
+      sec.hidden = false;
+      sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    async function buildAndDownloadDatabase() {
+      const validation = validateAllItems();
+      if (!validation.ok || isBusy) return;
+
+      isBusy = true;
+      updateValidationState();
+      showGlobalError('');
+      $('#summarySection').hidden = true;
+
+      let db = null;
+      try {
+        setProgress(true, '正在載入 SQLite 引擎…', 2);
+        await yieldToMain();
+        const SQL = await ensureSqlJs();
+
+        db = new SQL.Database();
+        const totalRowsAll = fileItems.reduce((acc, it) => acc + it.rowCount, 0) || 1;
+        let processedRowsAll = 0;
+        const summaries = [];
+        const INSERT_BATCH = 2500;
+
+        for (let fIdx = 0; fIdx < fileItems.length; fIdx++) {
+          const item = fileItems[fIdx];
+          const tableName = item.tableName.trim();
+          const colDefs = item.columns.map(
+            (col, cIdx) => `${quoteIdent(col.trim())} ${item.types[cIdx]}`
+          );
+
+          const createSql = `CREATE TABLE ${quoteIdent(tableName)} (${colDefs.join(', ')});`;
+          db.run(createSql);
+
+          const placeholders = new Array(item.colCount).fill('?').join(', ');
+          const insertSql = `INSERT INTO ${quoteIdent(tableName)} VALUES (${placeholders});`;
+
+          db.run('BEGIN TRANSACTION;');
+          const stmt = db.prepare(insertSql);
+          let adjustedCount = 0;
+
+          try {
+            const rows = item.dataRows;
+            const rowLen = rows.length;
+            const colCount = item.colCount;
+            const types = item.types;
+
+            for (let r = 0; r < rowLen; r++) {
+              const rawRow = rows[r];
+              if (rawRow.length !== colCount) {
+                adjustedCount++;
+              }
+
+              const boundParams = new Array(colCount);
+              for (let c = 0; c < colCount; c++) {
+                const rawVal = c < rawRow.length ? rawRow[c] : '';
+                boundParams[c] = convertValueForSqlite(rawVal, types[c]);
+              }
+              stmt.run(boundParams);
+              processedRowsAll++;
+
+              if (r > 0 && r % INSERT_BATCH === 0) {
+                const pct = 5 + (processedRowsAll / totalRowsAll) * 88;
+                setProgress(
+                  true,
+                  `正在寫入資料表「${tableName}」（${r.toLocaleString()} / ${rowLen.toLocaleString()} 列）…`,
+                  pct
+                );
+                await yieldToMain();
+              }
+            }
+          } finally {
+            stmt.free();
+          }
+
+          db.run('COMMIT;');
+
+          summaries.push({
+            tableName,
+            rowCount: item.rowCount,
+            adjustedRowCount: adjustedCount,
+            columns: item.columns.map(c => c.trim()),
+            types: item.types.slice()
+          });
+        }
+
+        setProgress(true, '正在封裝 .db 資料庫檔案…', 96);
+        await yieldToMain();
+
+        let outName = $('#dbFilename').value.trim() || 'my_data.db';
+        if (!/\.(db|sqlite|sqlite3|db3)$/i.test(outName)) {
+          outName += '.db';
+        }
+
+        const binaryArray = db.export();
+        triggerDownloadBlob(binaryArray, outName);
+
+        renderConversionSummary(outName, summaries);
+        showToast(`轉換完成，已下載 ${outName}`);
+      } catch (err) {
+        showGlobalError('轉換資料庫時發生錯誤：' + String(err.message || err));
+      } finally {
+        if (db) {
+          try { db.close(); } catch (e) { /* ignore */ }
+        }
+        setProgress(false);
+        isBusy = false;
+        updateValidationState();
+      }
+    }
+
+    /* =========================================================
+     * 10. 事件綁定與啟動檢查
+     * ========================================================= */
+    function bindEvents() {
+      const dropzone = $('#dropzone');
+      const fileInput = $('#fileInput');
+      const pickBtn = $('#pickFilesBtn');
+
+      pickBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        if (!isBusy) fileInput.click();
+      });
+
+      dropzone.addEventListener('click', () => {
+        if (!isBusy) fileInput.click();
+      });
+
+      dropzone.addEventListener('keydown', e => {
+        if ((e.key === 'Enter' || e.key === ' ') && !isBusy) {
+          e.preventDefault();
+          fileInput.click();
+        }
+      });
+
+      fileInput.addEventListener('change', e => {
+        if (e.target.files && e.target.files.length > 0) {
+          handleFilesSelected(e.target.files);
+          e.target.value = '';
+        }
+      });
+
+      dropzone.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isBusy) dropzone.classList.add('dragover');
+      });
+
+      dropzone.addEventListener('dragleave', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('dragover');
+      });
+
+      dropzone.addEventListener('drop', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('dragover');
+        if (!isBusy && e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          handleFilesSelected(e.dataTransfer.files);
+        }
+      });
+
+      // 切換「把欄名改成安全名稱」時重新計算所有檔案的欄名
+      $('#safeNameToggle').addEventListener('change', e => {
+        const useSafe = e.target.checked;
+        fileItems.forEach(item => {
+          if (!item.error && item.rawHeader.length > 0) {
+            item.columns = computeColumnNames(item.rawHeader, useSafe);
+          }
+        });
+        renderFiles();
+        updateValidationState();
+      });
+
+      $('#convertBtn').addEventListener('click', () => {
+        buildAndDownloadDatabase();
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      bindEvents();
+      // 預先檢查 sql.js 是否正常載入
+      ensureSqlJs().catch(err => {
+        showGlobalError(String(err.message || err));
+      });
+    });
+  })();
+  </script>
+</body>
+</html>
