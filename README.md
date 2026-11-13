@@ -10,6 +10,7 @@
 | 練習排行榜 | <https://peteroll.github.io/SQLiteDatabase/practice/board.html> | 上課投影用的即時排行榜 |
 | CSV 轉 SQLite 工具 | <https://peteroll.github.io/SQLiteDatabase/csv2db/> | 把 CSV 轉成 `.db`；資料表名稱相同的檔案會合併成一張表 |
 | 期中闖關 | <https://peteroll.github.io/SQLiteDatabase/midterm/> | 期中線上闖關「夜市快送・優惠券詐領案」 |
+| 高雄交通事故儀表板 | <https://peteroll.github.io/SQLiteDatabase/demo/> | 期末專題 DEMO；七個主題各一個分頁，可直接改 SQL 重畫圖表（第一次開啟要下載約 44MB 資料庫） |
 
 ### 常用的網址參數
 

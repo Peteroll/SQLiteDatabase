@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>高雄交通事故儀表板｜大數據資料庫應用實務</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23FF9830'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css?v=c6b9e01ceb3b">
+</head>
+<body>
+  <div id="loading" role="status" aria-live="polite">
+    <div class="ld-box">
+      <div class="ld-title">KH-TRAFFIC</div>
+      <div class="ld-step" id="ld-step">正在載入資料庫</div>
+      <div class="ld-bar" id="ld-bar"><div class="ld-fill" id="ld-fill"></div></div>
+      <div class="ld-meta" id="ld-meta"></div>
+      <div class="ld-err" id="ld-err" hidden></div>
+      <button type="button" class="btn" id="ld-retry" hidden>重新載入</button>
+    </div>
+  </div>
+
+  <header class="top">
+    <div class="top-row">
+      <div class="brand"><span class="logo">KH-TRAFFIC</span><span class="crumb" id="crumb"></span></div>
+      <div class="period" id="period"></div>
+    </div>
+    <nav class="tabs" id="tabs" aria-label="分頁"></nav>
+  </header>
+
+  <main id="main"></main>
+
+  <footer class="foot">
+    <div>大數據資料庫應用實務 · 期末專題示範</div>
+    <div>資料來源：高雄市政府資料開放平台</div>
+    <div id="check" class="check"></div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+  <script src="panels.js?v=0fdebb1af99f"></script>
+  <script src="app.js?v=028bd26334fd"></script>
+</body>
+</html>
