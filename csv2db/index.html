@@ -316,6 +316,29 @@
       color: var(--red); background: var(--red-wash);
       border-color: rgba(201, 58, 82, .35); font-family: var(--sans); font-weight: 600;
     }
+    .chip.merge {
+      color: var(--accent-ink); background: var(--accent);
+      border-color: var(--accent); font-family: var(--sans); font-weight: 700;
+    }
+
+    /* 合併設定與合併摘要 */
+    .merge-group {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .merge-row {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    }
+    .merge-name-input {
+      font-family: var(--mono); font-size: 14px; width: 190px;
+    }
+    .merge-card {
+      border-top: 1px solid var(--hair); margin-top: 14px; padding-top: 14px;
+    }
+    .merge-card:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+    .merge-hint {
+      font-size: 13px; color: var(--muted); margin: 0 0 6px;
+    }
+    .merge-hint.same { color: var(--ok); font-weight: 600; }
 
     .table-name-row {
       display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px;
@@ -462,7 +485,7 @@
             <span class="step-num">1</span>
             <div class="step-text">
               <b>選取或拖放 CSV 檔</b>
-              <span>可一次選取或分次追加多個 <code>.csv</code> 檔，每個檔案會轉成同一個資料庫裡的一張資料表。</span>
+              <span>可一次選取或分次追加多個 <code>.csv</code> 檔，每個檔案會轉成同一個資料庫裡的一張資料表；資料表名稱相同的檔案會合併成一張表。</span>
             </div>
           </div>
           <div class="step-item">
@@ -505,6 +528,19 @@
             <span class="check-hint">將中英文、數字、底線以外的字元換成底線，若開頭為數字則在前面加底線</span>
           </div>
 
+          <div class="merge-group">
+            <div class="merge-row">
+              <label for="mergeNameInput" class="check-hint" style="margin:0;">合併後表名</label>
+              <input type="text" id="mergeNameInput" class="merge-name-input" placeholder="資料表名稱">
+              <button type="button" class="pill" id="mergeAllBtn">全部合併成一張表</button>
+              <button type="button" class="pill" id="unmergeBtn">取消合併</button>
+            </div>
+            <label class="check-label">
+              <input type="checkbox" id="sourceColToggle" checked>
+              <span>合併時加上來源檔名欄位</span>
+            </label>
+          </div>
+
           <div class="export-group">
             <label for="dbFilename">輸出檔名</label>
             <input type="text" id="dbFilename" class="db-name-input" value="my_data.db" placeholder="my_data.db">
@@ -540,6 +576,14 @@
           </div>
         </div>
         <div id="summaryBody"></div>
+      </div>
+    </section>
+
+    <!-- 合併摘要（轉換前即時顯示） -->
+    <section id="mergeSummarySection" class="shell" hidden>
+      <div class="core pad">
+        <span class="eyebrow">合併摘要</span>
+        <div id="mergeSummaryBody" style="margin-top:12px;"></div>
       </div>
     </section>
 
@@ -869,7 +913,14 @@
       }
 
       const finalTypes = colTypes.map(t => (t === 'EMPTY' ? 'TEXT' : t));
-      return { inferredTypes: finalTypes, adjustedRowCount };
+      // rawKinds 保留每欄統計（EMPTY = 全空、INTEGER = 全整數、REAL = 全數字、TEXT = 其他或有前導 0），供合併時重判型別
+      return { inferredTypes: finalTypes, rawKinds: colTypes, adjustedRowCount };
+    }
+
+    // 合併多個檔案同名欄位的統計：EMPTY < INTEGER < REAL < TEXT，取最寬者
+    const KIND_RANK = { EMPTY: 0, INTEGER: 1, REAL: 2, TEXT: 3 };
+    function mergeKinds(a, b) {
+      return (KIND_RANK[b] || 0) > (KIND_RANK[a] || 0) ? b : a;
     }
 
     /* =========================================================
@@ -948,7 +999,7 @@
       setProgress(true, `正在判斷「${item.fileName}」的欄位型別（共 ${dataRows.length.toLocaleString()} 列）…`, 65);
       await yieldToMain();
 
-      const { inferredTypes, adjustedRowCount } = await analyzeDataRows(
+      const { inferredTypes, rawKinds, adjustedRowCount } = await analyzeDataRows(
         dataRows,
         item.colCount,
         ratio => {
@@ -961,6 +1012,7 @@
       );
 
       item.inferredTypes = inferredTypes;
+      item.rawKinds = rawKinds;
       item.types = inferredTypes.slice();
       item.adjustedRowCount = adjustedRowCount;
     }
@@ -976,17 +1028,20 @@
         for (let i = 0; i < files.length; i++) {
           const f = files[i];
           const existingTables = fileItems.map(x => x.tableName);
+          const defaultName = deriveTableName(f.name, existingTables);
           const item = {
             id: nextFileId++,
             fileName: f.name,
             fileSize: f.size,
-            tableName: deriveTableName(f.name, existingTables),
+            tableName: defaultName,
+            defaultTableName: defaultName,
             encoding: 'utf-8',
             delimiter: ',',
             uint8: null,
             rawHeader: [],
             columns: [],
             inferredTypes: [],
+            rawKinds: [],
             types: [],
             dataRows: [],
             previewRows: [],
@@ -1043,18 +1098,110 @@
     }
 
     /* =========================================================
-     * 7. 驗證資料表名稱與欄位名稱（空值、重複檢查）
+     * 7. 資料表分組（同名合併）與驗證資料表名稱、欄位名稱
      * ========================================================= */
+    // 表名套用安全名稱規則後、不分大小寫相同者視為同一組
+    function tableGroupKey(name) {
+      const t = String(name || '').trim();
+      if (!t) return '';
+      return toSafeIdentifier(t, t).toLowerCase();
+    }
+
+    // 依檔案在清單中的順序分組；合併後的表名取組內第一個檔的表名
+    function computeTableGroups() {
+      const groups = [];
+      const byKey = new Map();
+      for (const item of fileItems) {
+        if (item.error) continue;
+        const key = tableGroupKey(item.tableName);
+        if (!key) continue;
+        let g = byKey.get(key);
+        if (!g) {
+          g = { key, tableName: item.tableName.trim(), items: [] };
+          byKey.set(key, g);
+          groups.push(g);
+        }
+        g.items.push(item);
+      }
+      return groups;
+    }
+
+    // 計算多檔合併的欄位聯集、每欄有幾個檔、型別與來源檔名欄
+    function buildMergePlan(group, addSourceCol) {
+      const columns = [];
+      const kinds = [];
+      const userTypes = [];
+      const presence = [];
+      const keyIdx = new Map();
+      const colMaps = new Map(); // item.id -> 每個原始欄對應到合併後的欄索引
+
+      group.items.forEach(item => {
+        const map = new Array(item.colCount);
+        const seenInItem = new Set();
+        item.columns.forEach((c, ci) => {
+          const name = c.trim();
+          const k = name.toLowerCase();
+          let idx = keyIdx.get(k);
+          if (idx === undefined) {
+            idx = columns.length;
+            keyIdx.set(k, idx);
+            columns.push(name);
+            kinds.push('EMPTY');
+            userTypes.push(null);
+            presence.push(0);
+          }
+          map[ci] = idx;
+          if (!seenInItem.has(idx)) {
+            presence[idx]++;
+            seenInItem.add(idx);
+          }
+          kinds[idx] = mergeKinds(kinds[idx], (item.rawKinds && item.rawKinds[ci]) || item.inferredTypes[ci]);
+          // 使用者手動改過型別者以使用者指定為準；組內指定不一致時取 TEXT
+          if (item.types[ci] !== item.inferredTypes[ci]) {
+            const ut = item.types[ci];
+            userTypes[idx] = userTypes[idx] === null || userTypes[idx] === ut ? ut : 'TEXT';
+          }
+        });
+        colMaps.set(item.id, map);
+      });
+
+      const types = kinds.map((kd, i) => userTypes[i] || (kd === 'EMPTY' ? 'TEXT' : kd));
+
+      let sourceColName = null;
+      if (addSourceCol) {
+        let candidate = '來源檔名';
+        let seq = 2;
+        while (keyIdx.has(candidate.toLowerCase())) {
+          candidate = '來源檔名_' + seq;
+          seq++;
+        }
+        sourceColName = candidate;
+      }
+
+      const fileCount = group.items.length;
+      const partialCols = [];
+      columns.forEach((c, i) => {
+        if (presence[i] < fileCount) partialCols.push({ name: c, count: presence[i] });
+      });
+
+      return {
+        tableName: group.tableName,
+        items: group.items,
+        fileCount,
+        columns,
+        types,
+        colMaps,
+        sourceColName,
+        partialCols,
+        rowCount: group.items.reduce((acc, it) => acc + it.rowCount, 0),
+        adjustedRowCount: group.items.reduce((acc, it) => acc + it.adjustedRowCount, 0)
+      };
+    }
+
     function validateAllItems() {
       const validItems = fileItems.filter(x => !x.error);
       if (validItems.length === 0) {
         return { ok: false, tableErrors: new Map(), colErrors: new Map() };
-      }
-
-      const tableCounts = new Map();
-      for (const item of validItems) {
-        const t = item.tableName.trim();
-        if (t) tableCounts.set(t, (tableCounts.get(t) || 0) + 1);
       }
 
       const tableErrors = new Map();
@@ -1065,9 +1212,6 @@
         const t = item.tableName.trim();
         if (!t) {
           tableErrors.set(item.id, '資料表名稱不可空白');
-          allOk = false;
-        } else if (tableCounts.get(t) > 1) {
-          tableErrors.set(item.id, `資料表名稱「${t}」與其他檔案重複`);
           allOk = false;
         }
 
@@ -1098,9 +1242,25 @@
       const { ok, tableErrors, colErrors } = validateAllItems();
       const hasErrorItems = fileItems.some(x => !!x.error);
 
+      const groups = computeTableGroups();
+      const groupOfItem = new Map();
+      groups.forEach(g => g.items.forEach(it => groupOfItem.set(it.id, g)));
+
       for (const item of fileItems) {
         const card = document.querySelector(`[data-item-id="${item.id}"]`);
         if (!card) continue;
+
+        const mergeChip = card.querySelector('.js-merge-chip');
+        if (mergeChip) {
+          const g = groupOfItem.get(item.id);
+          if (g && g.items.length > 1) {
+            mergeChip.hidden = false;
+            mergeChip.textContent = `合併到 ${g.tableName}（共 ${g.items.length} 個檔）`;
+          } else {
+            mergeChip.hidden = true;
+            mergeChip.textContent = '';
+          }
+        }
 
         const tInput = card.querySelector('.js-table-input');
         const tErrEl = card.querySelector('.js-table-err');
@@ -1121,6 +1281,75 @@
       }
 
       $('#convertBtn').disabled = isBusy || !ok || hasErrorItems || fileItems.length === 0;
+      renderMergeSummary(groups);
+    }
+
+    // 轉換前的合併摘要（只列多檔的組）
+    const expandedMergeKeys = new Set();
+    const PARTIAL_COL_LIMIT = 20;
+    function renderMergeSummary(groups) {
+      const sec = $('#mergeSummarySection');
+      const body = $('#mergeSummaryBody');
+      body.replaceChildren();
+      const multi = groups.filter(g => g.items.length > 1);
+      if (multi.length === 0) {
+        sec.hidden = true;
+        return;
+      }
+
+      const addSource = $('#sourceColToggle').checked;
+      multi.forEach(g => {
+        const plan = buildMergePlan(g, addSource);
+        const card = createEl('div', 'merge-card');
+
+        const head = createEl('div', 'summary-table-head');
+        head.appendChild(createEl('span', 'summary-tname', plan.tableName));
+        head.appendChild(createEl('span', 'chip', `${plan.fileCount} 個檔`));
+        head.appendChild(createEl('span', 'chip', `合計 ${plan.rowCount.toLocaleString()} 列`));
+        head.appendChild(
+          createEl('span', 'chip', `合併後 ${plan.columns.length + (plan.sourceColName ? 1 : 0)} 欄`)
+        );
+        if (plan.adjustedRowCount > 0) {
+          head.appendChild(
+            createEl('span', 'chip warn', `有 ${plan.adjustedRowCount.toLocaleString()} 列欄數與表頭不一致（將自動補 NULL 或截斷）`)
+          );
+        }
+        card.appendChild(head);
+
+        if (plan.partialCols.length === 0) {
+          card.appendChild(createEl('p', 'merge-hint same', '所有檔案的欄位都相同'));
+        } else {
+          card.appendChild(
+            createEl('p', 'merge-hint', `不是每個檔都有的欄位（共 ${plan.partialCols.length} 個，缺少的檔案在該欄存 NULL）：`)
+          );
+          const expanded = expandedMergeKeys.has(g.key);
+          const shown = expanded ? plan.partialCols : plan.partialCols.slice(0, PARTIAL_COL_LIMIT);
+          const chipsWrap = createEl('div', 'col-chips');
+          shown.forEach(pc => {
+            const chip = createEl('span', 'colchip', pc.name);
+            chip.appendChild(createEl('small', '', `${pc.count}／${plan.fileCount} 個檔有`));
+            chipsWrap.appendChild(chip);
+          });
+          if (plan.partialCols.length > PARTIAL_COL_LIMIT) {
+            const toggleBtn = createEl(
+              'button',
+              'mini',
+              expanded ? '收合' : `顯示其餘 ${plan.partialCols.length - PARTIAL_COL_LIMIT} 個`
+            );
+            toggleBtn.type = 'button';
+            toggleBtn.addEventListener('click', () => {
+              if (expandedMergeKeys.has(g.key)) expandedMergeKeys.delete(g.key);
+              else expandedMergeKeys.add(g.key);
+              renderMergeSummary(computeTableGroups());
+            });
+            chipsWrap.appendChild(toggleBtn);
+          }
+          card.appendChild(chipsWrap);
+        }
+
+        body.appendChild(card);
+      });
+      sec.hidden = false;
     }
 
     /* =========================================================
@@ -1136,6 +1365,13 @@
     function renderFiles() {
       const container = $('#filesContainer');
       container.replaceChildren();
+
+      // 合併後表名輸入框若為空，預設帶入第一個檔的表名
+      const mergeNameInput = $('#mergeNameInput');
+      const firstValid = fileItems.find(x => !x.error);
+      if (!mergeNameInput.value.trim() && firstValid) {
+        mergeNameInput.value = firstValid.defaultTableName;
+      }
 
       fileItems.forEach(item => {
         const shell = createEl('section', 'shell');
@@ -1167,6 +1403,12 @@
           }
         } else {
           titleRow.appendChild(createEl('span', 'chip err', '檔案無法匯入'));
+        }
+        if (!item.error) {
+          // 合併標籤內容由 updateValidationState 即時更新
+          const mergeChip = createEl('span', 'chip merge js-merge-chip', '');
+          mergeChip.hidden = true;
+          titleRow.appendChild(mergeChip);
         }
         metaGroup.appendChild(titleRow);
 
@@ -1368,6 +1610,9 @@
         head.appendChild(createEl('span', 'summary-tname', s.tableName));
         head.appendChild(createEl('span', 'chip', `${s.rowCount.toLocaleString()} 列`));
         head.appendChild(createEl('span', 'chip', `${s.columns.length} 欄`));
+        if (s.sourceFileCount > 1) {
+          head.appendChild(createEl('span', 'chip merge', `由 ${s.sourceFileCount} 個檔合併`));
+        }
         if (s.adjustedRowCount > 0) {
           head.appendChild(
             createEl('span', 'chip warn', `已自動調整 ${s.adjustedRowCount.toLocaleString()} 列（欄數不足補 NULL／過多截斷）`)
@@ -1383,21 +1628,29 @@
         });
         card.appendChild(chipsWrap);
 
-        const sampleSql = `SELECT * FROM ${quoteIdent(s.tableName)} LIMIT 10;`;
-        const sqlBox = createEl('div', 'sql-box');
-        sqlBox.appendChild(createEl('code', '', sampleSql));
-        const copyBtn = createEl('button', 'mini', '複製範例 SQL');
-        copyBtn.type = 'button';
-        copyBtn.addEventListener('click', async () => {
-          try {
-            await navigator.clipboard.writeText(sampleSql);
-            showToast('已複製範例 SQL！');
-          } catch (e) {
-            showToast('複製失敗，請手動選取複製');
-          }
+        const sampleSqls = [`SELECT * FROM ${quoteIdent(s.tableName)} LIMIT 10;`];
+        if (s.sourceColName) {
+          sampleSqls.push(
+            `SELECT ${s.sourceColName}, COUNT(*) FROM ${quoteIdent(s.tableName)} GROUP BY ${s.sourceColName};`
+          );
+        }
+        sampleSqls.forEach((sampleSql, sIdx) => {
+          const sqlBox = createEl('div', 'sql-box');
+          if (sIdx > 0) sqlBox.style.marginTop = '8px';
+          sqlBox.appendChild(createEl('code', '', sampleSql));
+          const copyBtn = createEl('button', 'mini', '複製範例 SQL');
+          copyBtn.type = 'button';
+          copyBtn.addEventListener('click', async () => {
+            try {
+              await navigator.clipboard.writeText(sampleSql);
+              showToast('已複製範例 SQL！');
+            } catch (e) {
+              showToast('複製失敗，請手動選取複製');
+            }
+          });
+          sqlBox.appendChild(copyBtn);
+          card.appendChild(sqlBox);
         });
-        sqlBox.appendChild(copyBtn);
-        card.appendChild(sqlBox);
 
         body.appendChild(card);
       });
@@ -1422,22 +1675,44 @@
         const SQL = await ensureSqlJs();
 
         db = new SQL.Database();
-        const totalRowsAll = fileItems.reduce((acc, it) => acc + it.rowCount, 0) || 1;
+        const groups = computeTableGroups();
+        const addSource = $('#sourceColToggle').checked;
+        const totalFiles = groups.reduce((acc, g) => acc + g.items.length, 0);
+        const totalRowsAll = groups.reduce((acc, g) => acc + g.items.reduce((a, it) => a + it.rowCount, 0), 0) || 1;
         let processedRowsAll = 0;
+        let fileSeq = 0;
         const summaries = [];
         const INSERT_BATCH = 2500;
 
-        for (let fIdx = 0; fIdx < fileItems.length; fIdx++) {
-          const item = fileItems[fIdx];
-          const tableName = item.tableName.trim();
-          const colDefs = item.columns.map(
-            (col, cIdx) => `${quoteIdent(col.trim())} ${item.types[cIdx]}`
-          );
+        for (let gIdx = 0; gIdx < groups.length; gIdx++) {
+          const group = groups[gIdx];
+          const tableName = group.tableName;
+          const isMerged = group.items.length > 1;
+
+          // 單檔：欄位與型別照該檔；多檔：依合併計畫（欄名聯集＋來源檔名欄）
+          let columns, types, colMaps, sourceColName;
+          if (isMerged) {
+            const plan = buildMergePlan(group, addSource);
+            columns = plan.columns;
+            types = plan.types;
+            colMaps = plan.colMaps;
+            sourceColName = plan.sourceColName;
+          } else {
+            const only = group.items[0];
+            columns = only.columns.map(c => c.trim());
+            types = only.types.slice();
+            colMaps = new Map([[only.id, columns.map((c, i) => i)]]);
+            sourceColName = null;
+          }
+
+          const colDefs = columns.map((col, cIdx) => `${quoteIdent(col)} ${types[cIdx]}`);
+          if (sourceColName) colDefs.push(`${quoteIdent(sourceColName)} TEXT`);
 
           const createSql = `CREATE TABLE ${quoteIdent(tableName)} (${colDefs.join(', ')});`;
           db.run(createSql);
 
-          const placeholders = new Array(item.colCount).fill('?').join(', ');
+          const totalCols = columns.length + (sourceColName ? 1 : 0);
+          const placeholders = new Array(totalCols).fill('?').join(', ');
           const insertSql = `INSERT INTO ${quoteIdent(tableName)} VALUES (${placeholders});`;
 
           db.run('BEGIN TRANSACTION;');
@@ -1445,34 +1720,41 @@
           let adjustedCount = 0;
 
           try {
-            const rows = item.dataRows;
-            const rowLen = rows.length;
-            const colCount = item.colCount;
-            const types = item.types;
+            // 逐檔逐批寫入同一張表，不先把所有列合成大陣列
+            for (const item of group.items) {
+              fileSeq++;
+              const rows = item.dataRows;
+              const rowLen = rows.length;
+              const colCount = item.colCount;
+              const map = colMaps.get(item.id);
 
-            for (let r = 0; r < rowLen; r++) {
-              const rawRow = rows[r];
-              if (rawRow.length !== colCount) {
-                adjustedCount++;
-              }
+              for (let r = 0; r < rowLen; r++) {
+                const rawRow = rows[r];
+                if (rawRow.length !== colCount) {
+                  adjustedCount++;
+                }
 
-              const boundParams = new Array(colCount);
-              for (let c = 0; c < colCount; c++) {
-                const rawVal = c < rawRow.length ? rawRow[c] : '';
-                boundParams[c] = convertValueForSqlite(rawVal, types[c]);
-              }
-              stmt.run(boundParams);
-              processedRowsAll++;
+                const boundParams = new Array(totalCols).fill(null);
+                for (let c = 0; c < colCount; c++) {
+                  const rawVal = c < rawRow.length ? rawRow[c] : '';
+                  const target = map[c];
+                  boundParams[target] = convertValueForSqlite(rawVal, types[target]);
+                }
+                if (sourceColName) boundParams[totalCols - 1] = item.fileName;
+                stmt.run(boundParams);
+                processedRowsAll++;
 
-              if (r > 0 && r % INSERT_BATCH === 0) {
-                const pct = 5 + (processedRowsAll / totalRowsAll) * 88;
-                setProgress(
-                  true,
-                  `正在寫入資料表「${tableName}」（${r.toLocaleString()} / ${rowLen.toLocaleString()} 列）…`,
-                  pct
-                );
-                await yieldToMain();
+                if (r > 0 && r % INSERT_BATCH === 0) {
+                  const pct = 5 + (processedRowsAll / totalRowsAll) * 88;
+                  setProgress(
+                    true,
+                    `正在寫入資料表「${tableName}」：第 ${fileSeq} / ${totalFiles} 個檔「${item.fileName}」（${r.toLocaleString()} / ${rowLen.toLocaleString()} 列，已匯入 ${processedRowsAll.toLocaleString()} / ${totalRowsAll.toLocaleString()} 列）…`,
+                    pct
+                  );
+                  await yieldToMain();
+                }
               }
+              await yieldToMain();
             }
           } finally {
             stmt.free();
@@ -1482,10 +1764,12 @@
 
           summaries.push({
             tableName,
-            rowCount: item.rowCount,
+            rowCount: group.items.reduce((acc, it) => acc + it.rowCount, 0),
             adjustedRowCount: adjustedCount,
-            columns: item.columns.map(c => c.trim()),
-            types: item.types.slice()
+            columns: sourceColName ? columns.concat([sourceColName]) : columns.slice(),
+            types: sourceColName ? types.concat(['TEXT']) : types.slice(),
+            sourceFileCount: group.items.length,
+            sourceColName
           });
         }
 
@@ -1575,6 +1859,42 @@
           }
         });
         renderFiles();
+        updateValidationState();
+      });
+
+      // 全部合併成一張表：所有檔案的表名設成同一個（預設第一個檔的表名）
+      $('#mergeAllBtn').addEventListener('click', () => {
+        if (isBusy) return;
+        const firstValid = fileItems.find(x => !x.error);
+        if (!firstValid) {
+          showToast('目前沒有可合併的檔案');
+          return;
+        }
+        const nameInput = $('#mergeNameInput');
+        const name = nameInput.value.trim() || firstValid.tableName.trim() || firstValid.defaultTableName;
+        nameInput.value = name;
+        fileItems.forEach(item => {
+          item.tableName = name;
+        });
+        $('#summarySection').hidden = true;
+        renderFiles();
+        updateValidationState();
+        showToast(`已將所有檔案設為合併到「${name}」`);
+      });
+
+      // 取消合併：還原各檔的預設表名
+      $('#unmergeBtn').addEventListener('click', () => {
+        if (isBusy) return;
+        fileItems.forEach(item => {
+          item.tableName = item.defaultTableName;
+        });
+        $('#summarySection').hidden = true;
+        renderFiles();
+        updateValidationState();
+        showToast('已還原各檔案的預設資料表名稱');
+      });
+
+      $('#sourceColToggle').addEventListener('change', () => {
         updateValidationState();
       });
 
