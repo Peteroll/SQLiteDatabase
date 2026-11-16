@@ -46,7 +46,7 @@
     const total = qIds.length || 10;
     $('#bCount').textContent = d.count;
     $('#bAll').textContent = d.players.filter(p => p.solved >= total).length;
-    const top = d.players.slice(0, 15);
+    const top = d.players.slice(0, 40);
     $('#bList').innerHTML = top.length ? top.map((p, i) => {
       const rank = i + 1;
       const was = prevRank[p.sid];
@@ -62,7 +62,7 @@
         <span class="bsolved">${p.solved}<small>/${total}</small></span>
         <span class="btotal">${p.total}</span>
       </li>`;
-    }).join('') + (d.players.length > 15 ? `<li class="board-more">還有 ${d.players.length - 15} 位同學正在努力中…</li>` : '')
+    }).join('') + (d.players.length > 40 ? `<li class="board-more">還有 ${d.players.length - 40} 位同學正在努力中…</li>` : '')
       : '<li class="board-empty">等待第一位同學提交…</li>';
     prevRank = {}; d.players.forEach((p, i) => { prevRank[p.sid] = i + 1; });
     const qmap = {}; d.questions.forEach(q => { qmap[q.q] = q; });
