@@ -15,7 +15,6 @@
 ### 常用的網址參數
 
 - 排行榜指定週次：<https://peteroll.github.io/SQLiteDatabase/practice/board.html?week=13>（把 `13` 換成週次）
-- 練習頁提前試玩（老師用，略過開放時間）：<https://peteroll.github.io/SQLiteDatabase/practice/?preview=1>
 
 ## 資料庫下載
 
